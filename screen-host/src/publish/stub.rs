@@ -25,6 +25,10 @@ impl Publisher for StubPublisher {
         self.session_id = None;
     }
 
+    fn publish_frame(&mut self, _frame: &crate::capture::Frame) {
+        // The stub has no media; the host still exercises the capture loop.
+    }
+
     fn request_keyframe(&mut self) -> bool {
         // Best-effort: nothing to request on a stub.
         false

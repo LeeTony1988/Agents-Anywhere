@@ -62,6 +62,11 @@ impl Publisher for LiveKitPublisher {
         self.grant = None;
     }
 
+    fn publish_frame(&mut self, _frame: &crate::capture::Frame) {
+        // TODO(RD-P2-11): copy the I420 planes into `I420Buffer::new` and call
+        // `NativeVideoSource::capture_frame` from the room worker thread.
+    }
+
     fn request_keyframe(&mut self) -> bool {
         // Best-effort (decisions §1.1.4): the Rust SDK does not expose a subscriber
         // keyframe request; log and report false.

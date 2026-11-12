@@ -1,10 +1,13 @@
 //! Host state machine: session lifecycle, control lease, quality, input dispatch.
 
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 
 use log::{info, warn};
 
-use crate::capture::{CaptureError, CaptureSource, Frame};
+use crate::capture::{new_capture_source, CaptureError, CaptureSource, Frame};
 use crate::config::{Quality, QualityPatch, DEFAULT_MAX_WIDTH};
 use crate::input::{InputEvent, InputSink};
 use crate::protocol::{
@@ -68,7 +71,9 @@ pub struct Host {
     pressed_buttons: BTreeSet<String>,
     pub consent_required: bool,
     capture: Box<dyn CaptureSource>,
-    publisher: Box<dyn Publisher>,
+    publisher: Arc<Mutex<Box<dyn Publisher>>>,
+    stream_stop: Option<Arc<AtomicBool>>,
+    stream_thread: Option<JoinHandle<()>>,
     sink: Box<dyn InputSink>,
     events: Box<dyn EventSink>,
 }
@@ -94,7 +99,9 @@ impl Host {
             pressed_buttons: BTreeSet::new(),
             consent_required: false,
             capture,
-            publisher,
+            publisher: Arc::new(Mutex::new(publisher)),
+            stream_stop: None,
+            stream_thread: None,
             sink,
             events,
         }
@@ -212,7 +219,7 @@ impl Host {
             .and_then(|m| serde_json::from_value(m.clone()).ok());
         match media {
             Some(grant) => {
-                self.publisher.start(&session_id, &grant);
+                self.publisher.lock().unwrap().start(&session_id, &grant);
             }
             None => {
                 // Media grant is optional in the skeleton (e.g. consent-first flows ship
@@ -222,6 +229,7 @@ impl Host {
         }
 
         self.session_id = Some(session_id.clone());
+        self.start_stream();
         self.state = HostState::Running;
         self.emit_state(&session_id, "running");
         response_ok(id, serde_json::json!({"accepted": true}))
@@ -235,7 +243,8 @@ impl Host {
             if let Some(sid) = &session_id {
                 self.emit_state(sid, "stopping");
             }
-            self.publisher.stop();
+            self.stop_stream();
+            self.publisher.lock().unwrap().stop();
             self.capture.stop();
         }
         self.release_all_internal();
@@ -275,7 +284,7 @@ impl Host {
     }
 
     fn handle_request_keyframe(&mut self, id: u64) -> HostControlMessage {
-        let requested = self.publisher.request_keyframe();
+        let requested = self.publisher.lock().unwrap().request_keyframe();
         response_ok(id, serde_json::json!({"requested": requested}))
     }
 
@@ -351,13 +360,55 @@ impl Host {
         response_ok(id, serde_json::json!({"appliedSeq": applied_seq}))
     }
 
+    /// Pull frames from a second capture source and hand them to the publisher.
+    /// A separate source keeps the on-demand screenshot path independent from
+    /// the streaming path and avoids contending on one WGC session.
+    fn start_stream(&mut self) {
+        self.stop_stream();
+        let mut capture = new_capture_source(self.quality);
+        if let Err(error) = capture.start(&self.display_id) {
+            warn!("stream capture did not start: {error}");
+            return;
+        }
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_flag = Arc::clone(&stop);
+        let publisher = Arc::clone(&self.publisher);
+        self.stream_thread = Some(std::thread::spawn(move || {
+            while !stop_flag.load(Ordering::Relaxed) {
+                match capture.next_frame() {
+                    Ok(frame) => {
+                        if let Ok(mut publisher) = publisher.lock() {
+                            publisher.publish_frame(&frame);
+                        }
+                    }
+                    Err(error) => {
+                        warn!("stream capture stopped: {error}");
+                        break;
+                    }
+                }
+            }
+            capture.stop();
+        }));
+        self.stream_stop = Some(stop);
+    }
+
+    fn stop_stream(&mut self) {
+        if let Some(stop) = self.stream_stop.take() {
+            stop.store(true, Ordering::Relaxed);
+        }
+        if let Some(handle) = self.stream_thread.take() {
+            let _ = handle.join();
+        }
+    }
+
     /// Full shutdown used on EOF / signals: release everything, stop media, idle out.
     pub fn shutdown(&mut self) {
         let session_id = self.session_id.clone();
         if self.state == HostState::Running || self.state == HostState::Starting {
             self.state = HostState::Stopping;
         }
-        self.publisher.stop();
+        self.stop_stream();
+        self.publisher.lock().unwrap().stop();
         self.capture.stop();
         self.release_all_internal();
         self.state = HostState::Idle;
@@ -465,6 +516,14 @@ impl Host {
             }),
         );
         self.events.emit(msg);
+    }
+}
+
+impl Drop for Host {
+    fn drop(&mut self) {
+        self.stop_stream();
+        self.publisher.lock().unwrap().stop();
+        self.capture.stop();
     }
 }
 

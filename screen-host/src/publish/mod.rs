@@ -47,6 +47,7 @@ impl Default for Stats {
 /// Media backend used by the host.
 pub trait Publisher: Send {
     fn start(&mut self, session_id: &str, media: &MediaGrant);
+    fn publish_frame(&mut self, frame: &crate::capture::Frame);
     fn stop(&mut self);
     /// Best-effort keyframe request (decisions §1.1.4); returns whether it was sent.
     fn request_keyframe(&mut self) -> bool;
