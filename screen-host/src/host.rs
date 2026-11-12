@@ -208,6 +208,24 @@ impl Host {
         self.state = HostState::Starting;
         self.emit_state(&session_id, "starting");
 
+        let display = self
+            .capture
+            .displays()
+            .into_iter()
+            .find(|display| display.id == self.display_id);
+        let stream_width = display
+            .as_ref()
+            .map(|display| display.width.min(self.quality.max_width))
+            .unwrap_or(self.quality.max_width);
+        let stream_height = display
+            .as_ref()
+            .map(|display| {
+                (display.height as f64 * (stream_width as f64 / display.width.max(1) as f64))
+                    .round()
+                    .max(1.0) as u32
+            })
+            .unwrap_or(stream_width * 9 / 16)
+            .max(1);
         if let Err(e) = self.capture.start(&self.display_id) {
             self.state = HostState::Crashed;
             self.emit_error(&session_id, ERR_CAPTURE_FAILED, &e.to_string());
@@ -219,7 +237,13 @@ impl Host {
             .and_then(|m| serde_json::from_value(m.clone()).ok());
         match media {
             Some(grant) => {
-                self.publisher.lock().unwrap().start(&session_id, &grant);
+                let quality = self.quality;
+                let width = stream_width;
+                let height = stream_height;
+                self.publisher
+                    .lock()
+                    .unwrap()
+                    .start(&session_id, &grant, &quality, width, height);
             }
             None => {
                 // Media grant is optional in the skeleton (e.g. consent-first flows ship

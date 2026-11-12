@@ -15,7 +15,14 @@ impl StubPublisher {
 }
 
 impl Publisher for StubPublisher {
-    fn start(&mut self, session_id: &str, _media: &MediaGrant) {
+    fn start(
+        &mut self,
+        session_id: &str,
+        _media: &MediaGrant,
+        _quality: &crate::config::Quality,
+        _width: u32,
+        _height: u32,
+    ) {
         self.running = true;
         self.session_id = Some(session_id.to_string());
     }
@@ -55,6 +62,9 @@ mod tests {
                 token: "t".into(),
                 identity: "host:conn_1".into(),
             },
+            &crate::config::Quality::default(),
+            1920,
+            1080,
         );
         assert!(!p.request_keyframe());
         let stats = p.stats();

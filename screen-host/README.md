@@ -19,7 +19,7 @@ stdio 拉起，双向使用 HostControl NDJSON 协议（`contracts/remote-deskto
 | 截图（`host.screenshot`） | ✅ 真实（自研） | 单帧 I420 → 灰度 PNG（内置极简 PNG 编码器，无外部依赖），默认 maxWidth 1280 |
 | 假采集/假输入（`fake.rs`） | ✅ 真实（测试用） | 2 帧 640x360 I420 渐变；事件记录 sink |
 | WGC 帧采集 | ✅ feature gate `wgc`（真实现，未在本机交互桌面验证） | `windows-capture 2.0.1`：优先 Windows.Graphics.Capture，失败时回退 DXGI Desktop Duplication；BGRA→I420、按 `maxWidth` 缩放、光标包含。默认 feature 关闭时仍用空白 stub 便于协议联调 |
-| LiveKit 发布 | ⚠️ feature gate `livekit` | `src/publish/livekit.rs` 骨架：`NativeVideoSource` + `TrackSource::Screenshare` + VP8 + `simulcast=false` + `contentHint=text` 的接线注释与 TODO（RD-P2-11）；默认走 `StubPublisher` |
+| LiveKit 发布 | ✅ feature gate `livekit`（真实现，未做真实 SFU 联调） | `NativeVideoSource` + `TrackSource::Screenshare` + VP8 + `simulcast=false`；Host 采集线程持续调用 `capture_frame`，2s 更新 fps/分辨率 stats；默认走 `StubPublisher` |
 | consent 确认框 / 悬浮条（RD-P2-13） | ❌ 未做 | 仅保留 `consentRequired` 字段 |
 | 打包 / CI（RD-P2-14/15） | ❌ 未做 | 本目录外的工作 |
 
@@ -31,6 +31,7 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test                 # 默认 features，全绿
 cargo build --features wgc # WGC feature gate 编译检查
+.\scripts\build-livekit.ps1 -WebrtcDir <解压后的 win-x64-release> # LiveKit 发布
 ```
 
 运行：
@@ -46,10 +47,14 @@ cargo run -- --once        # 只处理一行请求后优雅退出
 - `Cargo.toml` 中 `livekit = "=0.10.1"` 精确锁定，并要求提交 `Cargo.lock`
   （仓库不提交其他 lockfile，Rust 例外：Rust 依赖树的 lock 对本工程的**可复现构建**
   是必需的，且 LiveKit/libwebrtc 的下载型 build script 必须被钉住）。
-- 默认 features 为空，`livekit` 依赖只在 `--features livekit` 时参与构建；libwebrtc 需要
-  联网下载/编译，本次交付**未**做联网构建，`src/publish/livekit.rs` 是按
-  livekit-rust-sdk 0.10.x API 写的骨架，首次 `--features livekit` 构建若 SDK API 有出入
-  需要按编译错误微调。
+- 默认 features 为空，`livekit` 依赖只在 `--features livekit` 时参与构建。`libwebrtc` 的
+  `webrtc-sys` build script 会从 GitHub 下载预编译包；如果网络不可达，可手动下载
+  `webrtc-win-x64-release.zip`，解压后设置 `LK_CUSTOM_WEBRTC=<解压后的 win-x64-release 目录>`。
+- 预编译 libwebrtc 使用静态 MSVC 运行时（/MT）。`screen-host/.cargo/config.toml` 已为
+  MSVC 目标启用 `+crt-static`，并设置 `CC/CXX=clang-cl`（当前 Windows 镜像的 `cl.exe`
+  在 cc-rs 探针上会报 D8050）。在标准 CI 镜像上可直接 `cargo build --features livekit`。
+- 真实 LiveKit 服务器联调尚未执行；发布器已编译、链接并通过单元测试，`request_keyframe`
+  按契约返回 false（Rust SDK 不暴露可靠的订阅端关键帧请求）。
 
 ## Windows 运行要求
 

@@ -15,7 +15,8 @@
   删除清理与测试均已落地；Server 测试（含 PostgreSQL）通过。
 - **P2 Screen Host / Connector：完成主体**。`screen-host/` Rust 工程（协议、状态机、Windows 显示器
   枚举、WGC/DXGI 采集、SendInput、截图）已交付并通过 `cargo test`；真实 WGC 采集代码已编译，
-  但本机 CI 会话无法验证交互式桌面捕获（需真机 `--ignored` 测试）。LiveKit 发布仍是 feature gate。
+  但本机 CI 会话无法验证交互式桌面捕获（需真机 `--ignored` 测试）。LiveKit 发布器已实现并
+  在 `--features livekit` 下完成编译/链接（预编译 libwebrtc + 静态 CRT），尚未做真实 SFU 联调。
   Connector 的 host supervisor、`remoteDesktop.*` RPC、共享 dispatcher、配置与设备设置已完成，
   并与真实 `aa-screen-host.exe` 做了 start/info/screenshot/releaseAll/stop 联调；本机被控状态
   （`remoteDesktop`）已进入 Connector local state。

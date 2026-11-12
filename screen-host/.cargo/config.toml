@@ -1,0 +1,9 @@
+# The LiveKit prebuilt libwebrtc archive is built against the static MSVC
+# runtime (/MT). Rust's default MSVC target uses the dynamic CRT (/MD), which
+# produces duplicate std:: symbols at link time. Static CRT keeps the standalone
+# aa-screen-host binary self-contained and matches the SDK archive.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
