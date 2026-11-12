@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 STATE_MAP: dict[str, str] = {
     "starting": "starting",
+    "running": "live",
     "publishing": "live",
     "live": "live",
     "degraded": "degraded",

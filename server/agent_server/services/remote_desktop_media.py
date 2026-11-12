@@ -97,6 +97,14 @@ class MediaProvider(Protocol):
         ttl_seconds: int,
     ) -> MediaGrant: ...
 
+    async def create_host_grant(
+        self,
+        session: Any,
+        connector_id: str,
+        *,
+        ttl_seconds: int = 8 * 60 * 60,
+    ) -> MediaGrant: ...
+
     async def update_can_publish_data(
         self, session: Any, identity: str, allowed: bool
     ) -> None: ...
@@ -231,6 +239,34 @@ class LiveKitMediaProvider:
             canPublishData=is_controller,
         )
 
+    async def create_host_grant(
+        self,
+        session: Any,
+        connector_id: str,
+        *,
+        ttl_seconds: int = 8 * 60 * 60,
+    ) -> MediaGrant:
+        """Token the Connector hands to aa-screen-host to publish the screen."""
+        identity = f"host:{connector_id}"
+        room = self.room_name(session)
+        token, expires_at = self.create_join_token(
+            room=room,
+            identity=identity,
+            can_publish=True,
+            can_subscribe=False,
+            can_publish_data=True,
+            ttl_seconds=ttl_seconds,
+        )
+        return MediaGrant(
+            provider=self.name,
+            url=self.join_url,
+            room=room,
+            identity=identity,
+            token=token,
+            tokenExpiresAt=expires_at,
+            canPublishData=True,
+        )
+
     async def update_can_publish_data(
         self, session: Any, identity: str, allowed: bool
     ) -> None:
@@ -299,6 +335,18 @@ class NoopMediaProvider:
         *,
         role: str,
         ttl_seconds: int,
+    ) -> MediaGrant:
+        raise RemoteDesktopMediaUnavailableError(
+            message="Remote desktop media is not configured.",
+            details={"reason": "media_not_configured"},
+        )
+
+    async def create_host_grant(
+        self,
+        session: Any,
+        connector_id: str,
+        *,
+        ttl_seconds: int = 8 * 60 * 60,
     ) -> MediaGrant:
         raise RemoteDesktopMediaUnavailableError(
             message="Remote desktop media is not configured.",

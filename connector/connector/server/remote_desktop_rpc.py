@@ -221,6 +221,7 @@ class RemoteDesktopRpcHandler:
         )
         self._pending_stats: dict[str, dict[str, Any]] = {}
         self._stats_tasks: dict[str, asyncio.Task[None]] = {}
+        self._pending_consent: dict[str, asyncio.Task[None]] = {}
         if supervisor is None:
             resolved_host_path = host_path
             if resolved_host_path is None and self.config is not None:
@@ -359,25 +360,46 @@ class RemoteDesktopRpcHandler:
             consent, "timeoutMs", 0, 300_000, default=60_000
         )
         needs_consent = policy.consent_required(mode) or requested_consent
-        if needs_consent:
-            granted = await request_consent(
-                self._consent_prompt,
-                session_id=session_id,
-                timeout_seconds=consent_timeout_ms / 1000,
-            )
-            if not granted:
-                await self._notify(
-                    "remoteDesktop.consent",
-                    {
-                        "sessionId": session_id,
-                        "decision": "denied",
-                        "controllerIdentity": controller_identity,
-                    },
-                )
-                raise RemoteDesktopRpcError(
-                    "rd_permission_denied", "remote desktop consent was denied"
-                )
         quality = policy.effective_quality(quality_requested)
+        if needs_consent and self._consent_prompt is None:
+            await self._notify(
+                "remoteDesktop.consent",
+                {
+                    "sessionId": session_id,
+                    "decision": "denied",
+                    "controllerIdentity": controller_identity,
+                },
+            )
+            raise RemoteDesktopRpcError(
+                "rd_permission_denied",
+                "remote desktop consent requires an interactive device",
+            )
+        if needs_consent:
+            if session_id in self._pending_consent:
+                return {"accepted": True, "state": "awaiting_consent"}
+            task = asyncio.create_task(
+                self._start_after_consent(
+                    session_id=session_id,
+                    display_id=display_id,
+                    mode=mode,
+                    quality=quality,
+                    media=media,
+                    controller_identity=controller_identity,
+                    consent_timeout_seconds=consent_timeout_ms / 1000,
+                ),
+                name=f"rd-consent-{session_id}",
+            )
+            self._pending_consent[session_id] = task
+
+            def _clear(_task: asyncio.Task[None], key: str = session_id) -> None:
+                if self._pending_consent.get(key) is _task:
+                    self._pending_consent.pop(key, None)
+
+            task.add_done_callback(_clear)
+            # The HTTP create call must return while the device is still
+            # waiting for a human. The host prompt and publish happen in the
+            # background so the Server's 10 s RPC timeout is not hit.
+            return {"accepted": True, "state": "awaiting_consent"}
         try:
             result = await self.supervisor.start(
                 session_id,
@@ -395,24 +417,80 @@ class RemoteDesktopRpcHandler:
         except ScreenHostError as exc:
             await self._stop_quietly(session_id)
             raise rpc_error_from_host_error(exc, display_id=display_id) from exc
-        if needs_consent:
-            await self._notify(
-                "remoteDesktop.consent",
-                {
-                    "sessionId": session_id,
-                    "decision": "granted",
-                    "controllerIdentity": controller_identity,
-                },
-            )
         return {
             "accepted": bool(result.get("accepted", True)),
             "state": "starting",
         }
 
+    async def _start_after_consent(
+        self,
+        *,
+        session_id: str,
+        display_id: str | None,
+        mode: str,
+        quality: Mapping[str, Any],
+        media: Mapping[str, Any] | None,
+        controller_identity: str | None,
+        consent_timeout_seconds: float,
+    ) -> None:
+        granted = await request_consent(
+            self._consent_prompt,
+            session_id=session_id,
+            timeout_seconds=consent_timeout_seconds,
+        )
+        if not granted:
+            await self._notify(
+                "remoteDesktop.consent",
+                {
+                    "sessionId": session_id,
+                    "decision": "denied",
+                    "controllerIdentity": controller_identity,
+                },
+            )
+            await self._stop_quietly(session_id)
+            return
+        try:
+            await self.supervisor.start(
+                session_id,
+                display_id=display_id,
+                mode=mode,
+                quality=quality,
+                media=media,
+                consent_required=False,
+            )
+            if mode == "control" and controller_identity:
+                await self.supervisor.control_grant(
+                    session_id, controller_identity
+                )
+        except ScreenHostError as exc:
+            await self._stop_quietly(session_id)
+            await self._notify(
+                "remoteDesktop.error",
+                {
+                    "sessionId": session_id,
+                    "code": exc.code,
+                    "message": str(exc),
+                    "retryable": bool(getattr(exc, "retryable", False)),
+                },
+            )
+            return
+        await self._notify(
+            "remoteDesktop.consent",
+            {
+                "sessionId": session_id,
+                "decision": "granted",
+                "controllerIdentity": controller_identity,
+            },
+        )
+
     async def stop(self, params: dict[str, Any]) -> dict[str, Any]:
         _require_only_fields(params, _STOP_FIELDS)
         session_id = _optional_string(params.get("sessionId"))
         reason = _optional_string(params.get("reason"))
+        if session_id:
+            pending = self._pending_consent.pop(session_id, None)
+            if pending is not None and not pending.done():
+                pending.cancel()
         try:
             if reason is None:
                 await self.supervisor.stop(session_id)
@@ -638,6 +716,10 @@ class RemoteDesktopRpcHandler:
             logger.exception("remote desktop notification failed method={}", method)
 
     async def aclose(self) -> None:
+        for task in list(self._pending_consent.values()):
+            task.cancel()
+        await asyncio.gather(*self._pending_consent.values(), return_exceptions=True)
+        self._pending_consent.clear()
         for task in list(self._stats_tasks.values()):
             task.cancel()
         await asyncio.gather(*self._stats_tasks.values(), return_exceptions=True)

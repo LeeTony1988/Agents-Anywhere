@@ -256,6 +256,19 @@ class FakeMedia:
             canPublishData=role == "controller",
         )
 
+    async def create_host_grant(
+        self, session: Any, connector_id: str, *, ttl_seconds: int = 8 * 60 * 60
+    ) -> MediaGrant:
+        return MediaGrant(
+            provider="livekit",
+            url=self.join_url,
+            room=session.mediaRoom or f"rd_{session.id}",
+            identity=f"host:{connector_id}",
+            token="host-token",
+            tokenExpiresAt="2026-11-13T01:00:00Z",
+            canPublishData=True,
+        )
+
     async def update_can_publish_data(
         self, session: Any, identity: str, allowed: bool
     ) -> None:
@@ -407,7 +420,8 @@ def test_create_view_issues_viewer_grant_and_starts_host() -> None:
     assert result["media"]["identity"] == f"viewer:{result['participantId']}"
     assert result["ws"]["ticket"] == "wst_test"
     start = next(call for call in requester.calls if call[1] == "remoteDesktop.start")
-    assert start[2]["media"]["token"] == "viewer-token"
+    assert start[2]["media"]["identity"] == "host:conn_1"
+    assert start[2]["media"]["token"] == "host-token"
     assert start[2]["consent"]["required"] is False
     assert start[2]["controllerIdentity"] is None
     assert tickets.issued[0]["client_id"] == result["participantId"]
@@ -436,7 +450,9 @@ def test_control_waits_for_consent_without_media() -> None:
     assert result["media"] is None
     start = next(call for call in requester.calls if call[1] == "remoteDesktop.start")
     assert start[2]["consent"] == {"required": True, "timeoutMs": 60000}
-    assert start[2]["media"] is None
+    # The host gets its own publish token up front so it can join immediately
+    # after the local consent prompt; the client still gets media=null.
+    assert start[2]["media"]["identity"] == "host:conn_1"
     assert media.grants == []
 
 

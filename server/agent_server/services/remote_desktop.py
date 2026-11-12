@@ -544,6 +544,7 @@ class RemoteDesktopService:
             ),
         )
         grant: MediaGrant | None = None
+        host_grant: MediaGrant | None = None
         try:
             if mode == "control":
                 await self._update_session(
@@ -554,6 +555,12 @@ class RemoteDesktopService:
                     ),
                 )
                 session = await self._get_session(session.id, user_id)
+            if self._media.available:
+                # The host publishes, so it needs its own publish token even in
+                # the consent-first flow where the client gets media=null.
+                host_grant = await self._media.create_host_grant(
+                    session, connector.id
+                )
             if not consent_required:
                 grant = await self._grant(
                     session,
@@ -565,7 +572,7 @@ class RemoteDesktopService:
                 participant_id=participant_id,
                 mode=mode,
                 quality=quality,
-                grant=grant,
+                grant=host_grant,
                 consent_required=consent_required,
             )
         except asyncio.CancelledError:
