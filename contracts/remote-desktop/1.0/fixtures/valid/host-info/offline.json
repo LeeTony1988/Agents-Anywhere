@@ -1,0 +1,24 @@
+{
+  "connectorId": "conn_x",
+  "capabilities": [
+    {
+      "capabilityId": "connector.remote_desktop.control",
+      "scope": "connector",
+      "connectorId": "conn_x",
+      "supported": true,
+      "available": false,
+      "allowed": true,
+      "unavailableReason": "connector_offline",
+      "revision": 12,
+      "metadata": {
+        "maxFps": 60,
+        "codecs": [
+          "vp8"
+        ],
+        "clipboard": true
+      }
+    }
+  ],
+  "host": null,
+  "serverTime": "2026-11-13T00:00:00Z"
+}

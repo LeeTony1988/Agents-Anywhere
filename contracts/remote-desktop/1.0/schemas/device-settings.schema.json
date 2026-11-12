@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:device-settings",
+  "title": "RemoteDesktopDeviceSettings",
+  "description": "Machine-readable definition of the seven remote-desktop device settings and their defaults.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "remoteDesktopEnabled",
+    "remoteDesktopAllowControl",
+    "remoteDesktopRequireConsent",
+    "remoteDesktopAllowUnattended",
+    "remoteDesktopClipboard",
+    "remoteDesktopMaxFps",
+    "remoteDesktopMaxBitrateKbps"
+  ],
+  "properties": {
+    "remoteDesktopEnabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "remoteDesktopAllowControl": {
+      "type": "boolean",
+      "default": false
+    },
+    "remoteDesktopRequireConsent": {
+      "type": "boolean",
+      "default": true
+    },
+    "remoteDesktopAllowUnattended": {
+      "type": "boolean",
+      "default": false
+    },
+    "remoteDesktopClipboard": {
+      "type": "boolean",
+      "default": false
+    },
+    "remoteDesktopMaxFps": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 60,
+      "default": 30
+    },
+    "remoteDesktopMaxBitrateKbps": {
+      "type": "integer",
+      "minimum": 500,
+      "maximum": 20000,
+      "default": 4000
+    }
+  },
+  "x-direction": "ingress",
+  "x-contract-version": "1.0"
+}

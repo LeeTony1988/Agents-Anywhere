@@ -75,6 +75,34 @@ def test_patch_rejects_unknown_fields() -> None:
         ConnectorDeviceSettingsPatch.model_validate({"blockShutdown": True})
 
 
+def test_stored_settings_keep_ranged_ints_and_drop_invalid_values() -> None:
+    assert device_settings_from_stored(
+        {"remoteDesktopMaxFps": 45, "remoteDesktopMaxBitrateKbps": 900}
+    ) == ConnectorDeviceSettings(remoteDesktopMaxFps=45, remoteDesktopMaxBitrateKbps=900)
+    # Out-of-range ints fall back to the safe defaults.
+    assert device_settings_from_stored(
+        {"remoteDesktopMaxFps": 61, "remoteDesktopMaxBitrateKbps": 499}
+    ) == ConnectorDeviceSettings()
+    # bools are not ints and ints are not bools.
+    assert device_settings_from_stored({"remoteDesktopMaxFps": True}).remoteDesktopMaxFps == 30
+    assert (
+        device_settings_from_stored({"remoteDesktopMaxBitrateKbps": False}).remoteDesktopMaxBitrateKbps
+        == 4000
+    )
+    assert device_settings_from_stored({"confirmQuitOnShutdown": 1}).confirmQuitOnShutdown is False
+
+
+def test_patch_rejects_out_of_range_remote_desktop_ints() -> None:
+    with pytest.raises(ValueError):
+        ConnectorDeviceSettingsPatch.model_validate({"remoteDesktopMaxFps": 4})
+    with pytest.raises(ValueError):
+        ConnectorDeviceSettingsPatch.model_validate({"remoteDesktopMaxFps": 61})
+    with pytest.raises(ValueError):
+        ConnectorDeviceSettingsPatch.model_validate({"remoteDesktopMaxBitrateKbps": 499})
+    with pytest.raises(ValueError):
+        ConnectorDeviceSettingsPatch.model_validate({"remoteDesktopMaxBitrateKbps": 20001})
+
+
 def test_update_stores_then_delivers_to_online_connector() -> None:
     store = FakeStore()
     requester = FakeRequester()
@@ -91,9 +119,10 @@ def test_update_stores_then_delivers_to_online_connector() -> None:
 
     assert settings.confirmQuitOnShutdown is True
     assert delivered is True
-    assert store.writes == [{"confirmQuitOnShutdown": True}]
+    expected = ConnectorDeviceSettings(confirmQuitOnShutdown=True).model_dump()
+    assert store.writes == [expected]
     assert requester.calls == [
-        ("conn", DEVICE_SETTINGS_APPLY_METHOD, {"settings": {"confirmQuitOnShutdown": True}})
+        ("conn", DEVICE_SETTINGS_APPLY_METHOD, {"settings": expected})
     ]
 
 
@@ -115,7 +144,7 @@ def test_update_keeps_change_when_connector_is_offline_or_too_old() -> None:
         )
         assert settings.confirmQuitOnShutdown is True
         assert delivered is False
-        assert store.stored == {"confirmQuitOnShutdown": True}
+        assert store.stored == ConnectorDeviceSettings(confirmQuitOnShutdown=True).model_dump()
 
 
 def test_omitted_fields_keep_their_value() -> None:
@@ -138,7 +167,9 @@ def test_connect_delivers_stored_settings() -> None:
     assert asyncio.run(
         deliver_stored_device_settings(FakeStore({"confirmQuitOnShutdown": True}), requester, "conn")
     )
-    assert requester.calls[0][2] == {"settings": {"confirmQuitOnShutdown": True}}
+    assert requester.calls[0][2] == {
+        "settings": ConnectorDeviceSettings(confirmQuitOnShutdown=True).model_dump()
+    }
 
 
 def test_device_settings_api_round_trip(tmp_path) -> None:
@@ -148,15 +179,36 @@ def test_device_settings_api_round_trip(tmp_path) -> None:
 
     initial = client.get(path, headers=headers)
     assert initial.status_code == 200, initial.text
-    assert initial.json()["settings"] == {"confirmQuitOnShutdown": False}
+    assert initial.json()["settings"] == ConnectorDeviceSettings().model_dump()
     assert initial.json()["delivered"] is None
 
     changed = client.patch(path, headers=headers, json={"confirmQuitOnShutdown": True})
     assert changed.status_code == 200, changed.text
-    assert changed.json()["settings"] == {"confirmQuitOnShutdown": True}
+    expected = ConnectorDeviceSettings(confirmQuitOnShutdown=True).model_dump()
+    assert changed.json()["settings"] == expected
     # No connector socket is open in this test, so the change waits for it.
     assert changed.json()["delivered"] is False
-    assert client.get(path, headers=headers).json()["settings"] == {"confirmQuitOnShutdown": True}
+    assert client.get(path, headers=headers).json()["settings"] == expected
+
+    # Remote desktop settings round-trip; ranged ints reject out of range.
+    remote = client.patch(
+        path,
+        headers=headers,
+        json={
+            "remoteDesktopEnabled": True,
+            "remoteDesktopMaxFps": 60,
+            "remoteDesktopMaxBitrateKbps": 8000,
+        },
+    )
+    assert remote.status_code == 200, remote.text
+    assert remote.json()["settings"] == ConnectorDeviceSettings(
+        confirmQuitOnShutdown=True,
+        remoteDesktopEnabled=True,
+        remoteDesktopMaxFps=60,
+        remoteDesktopMaxBitrateKbps=8000,
+    ).model_dump()
+    assert client.patch(path, headers=headers, json={"remoteDesktopMaxFps": 4}).status_code == 422
+    assert client.patch(path, headers=headers, json={"remoteDesktopMaxBitrateKbps": 20001}).status_code == 422
 
     assert client.patch(path, headers=headers, json={"unknown": True}).status_code == 422
 

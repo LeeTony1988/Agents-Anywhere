@@ -1,0 +1,5 @@
+{
+  "v": 1,
+  "type": "shutdown",
+  "reason": "connector_exit"
+}

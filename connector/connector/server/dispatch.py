@@ -14,6 +14,10 @@ from connector.server.local_rpc import (
     StartTerminalRelay,
     UploadPreparedDownload,
 )
+from connector.server.remote_desktop_rpc import (
+    RemoteDesktopRpcError,
+    RemoteDesktopRpcHandler,
+)
 from connector.server.runtime_rpc import RuntimeRpcHandler
 
 DeviceSettingsSink = Callable[[dict[str, Any]], Awaitable[None]]
@@ -27,14 +31,24 @@ class ConnectorRequestSession:
         runtime_rpc: RuntimeRpcHandler,
         local_rpc: LocalRpcHandler,
         device_settings_sink: DeviceSettingsSink | None = None,
+        remote_desktop_rpc: RemoteDesktopRpcHandler | None = None,
     ) -> None:
         self.runtime_rpc = runtime_rpc
         self.local_rpc = local_rpc
         self.device_settings_sink = device_settings_sink
+        self.remote_desktop_rpc = remote_desktop_rpc
 
     async def dispatch(self, method: str, params: dict[str, Any]) -> Any:
         if method == DEVICE_SETTINGS_APPLY_METHOD:
             return await self._apply_device_settings(params)
+        if self.remote_desktop_rpc is not None and self.remote_desktop_rpc.supports(
+            method
+        ):
+            return await self.remote_desktop_rpc.dispatch(method, params)
+        if method.startswith("remoteDesktop."):
+            raise RemoteDesktopRpcError(
+                "rd_unsupported_method", f"method not found: {method}"
+            )
         if self.runtime_rpc.supports(method):
             return await self.runtime_rpc.dispatch(method, params)
         if self.local_rpc.supports(method):
@@ -50,6 +64,8 @@ class ConnectorRequestSession:
         settings = normalize_device_settings(params.get("settings"))
         if self.device_settings_sink is not None:
             await self.device_settings_sink(settings)
+        if self.remote_desktop_rpc is not None:
+            self.remote_desktop_rpc.apply_device_settings(settings)
         return {"applied": True}
 
 
@@ -65,6 +81,7 @@ class ConnectorRequestDispatcher:
         start_terminal_relay: StartTerminalRelay,
         schedule_background: BackgroundScheduler,
         device_settings_sink: DeviceSettingsSink | None = None,
+        remote_desktop_rpc: RemoteDesktopRpcHandler | None = None,
     ) -> None:
         self._agent_runtime_supervisor = agent_runtime_supervisor
         self._device_settings_sink = device_settings_sink
@@ -75,6 +92,10 @@ class ConnectorRequestDispatcher:
             upload_prepared_download=upload_prepared_download,
             start_terminal_relay=start_terminal_relay,
             schedule_background=schedule_background,
+        )
+        notify = getattr(local_ops, "notify", None)
+        self.remote_desktop_rpc = remote_desktop_rpc or RemoteDesktopRpcHandler(
+            notify=notify if callable(notify) else None,
         )
         self._default_session = self.new_session()
         self.runtime_rpc = self._default_session.runtime_rpc
@@ -88,6 +109,7 @@ class ConnectorRequestDispatcher:
             ),
             local_rpc=self.local_rpc,
             device_settings_sink=self._device_settings_sink,
+            remote_desktop_rpc=self.remote_desktop_rpc,
         )
 
     async def dispatch(self, method: str, params: dict[str, Any]) -> Any:

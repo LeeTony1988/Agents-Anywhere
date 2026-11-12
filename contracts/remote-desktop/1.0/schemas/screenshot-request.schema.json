@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:screenshot-request",
+  "title": "RemoteDesktopScreenshotRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format"
+  ],
+  "properties": {
+    "displayId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "maxWidth": {
+      "type": "integer",
+      "minimum": 320,
+      "maximum": 3840,
+      "default": 1280
+    },
+    "format": {
+      "enum": [
+        "jpeg",
+        "png"
+      ]
+    },
+    "quality": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    }
+  },
+  "x-direction": "ingress",
+  "x-contract-version": "1.0"
+}

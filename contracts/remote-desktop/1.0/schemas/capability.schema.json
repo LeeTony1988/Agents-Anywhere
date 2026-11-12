@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:capability",
+  "title": "RemoteDesktopCapability",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "capabilityId",
+    "scope",
+    "connectorId",
+    "supported",
+    "available",
+    "allowed",
+    "unavailableReason",
+    "revision",
+    "metadata"
+  ],
+  "properties": {
+    "capabilityId": {
+      "enum": [
+        "connector.remote_desktop.view",
+        "connector.remote_desktop.control",
+        "connector.remote_desktop.clipboard"
+      ]
+    },
+    "scope": {
+      "const": "connector"
+    },
+    "connectorId": {
+      "type": "string"
+    },
+    "supported": {
+      "type": "boolean"
+    },
+    "available": {
+      "type": "boolean"
+    },
+    "allowed": {
+      "type": "boolean"
+    },
+    "unavailableReason": {
+      "anyOf": [
+        {
+          "enum": [
+            "connector_offline",
+            "host_not_running",
+            "host_not_installed",
+            "connector_outdated",
+            "unsupported_platform",
+            "screen_permission_denied",
+            "accessibility_permission_denied",
+            "device_policy_disabled",
+            "session_limit_reached",
+            "media_not_configured"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "x-direction": "egress",
+  "x-contract-version": "1.0"
+}

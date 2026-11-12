@@ -1,0 +1,9 @@
+{
+  "detail": {
+    "code": "remote_desktop_unavailable",
+    "message": "Remote desktop is not available.",
+    "details": {
+      "reason": "connector_offline"
+    }
+  }
+}

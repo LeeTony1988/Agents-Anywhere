@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:session-create-response",
+  "title": "RemoteDesktopSessionCreateResponse",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "session",
+    "participantId",
+    "media",
+    "ws"
+  ],
+  "properties": {
+    "session": {
+      "$ref": "urn:agents-anywhere:remote-desktop:1.0:session"
+    },
+    "participantId": {
+      "type": "string",
+      "pattern": "^pt_[A-Za-z0-9_-]{16,64}$"
+    },
+    "media": {
+      "anyOf": [
+        {
+          "$ref": "urn:agents-anywhere:remote-desktop:1.0:media-grant"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ws": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "url",
+        "ticket",
+        "expiresAt"
+      ],
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "ticket": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  },
+  "x-direction": "egress",
+  "x-contract-version": "1.0"
+}

@@ -17,6 +17,7 @@
 | 接入无图形界面的机器 | [Connector](../connector/README.md) |
 | Android 构建 | [Android](../android/README.md) |
 | 架构和 API | [Server 架构](server-architecture.md)、[API](api/README.md) |
+| 跨端远程桌面方案 | [架构与接口](remote-desktop.md)；[API](api/remote-desktop.md)；[决策记录](remote-desktop-decisions.md)；[实现计划与审查结论](remote-desktop-implementation-plan.md) |
 | 使用统一原生 Plan、流式卡片和执行确认 | [Plan 使用与 API](api/planning.md)；[设计与实施计划](runtime-protocol/unified-plan-implementation-plan.md) |
 | 使用 Codex、Claude Code 目标模式 | [Goal 使用、API 与持久化](api/goals.md) |
 | DSH 大历史内存 | [实现与验证](dsh-snapshot-uploads.md) |

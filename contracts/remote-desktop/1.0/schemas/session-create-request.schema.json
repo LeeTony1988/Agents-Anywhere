@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:session-create-request",
+  "title": "RemoteDesktopSessionCreateRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "connectorId",
+    "mode"
+  ],
+  "properties": {
+    "connectorId": {
+      "type": "string"
+    },
+    "displayId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "mode": {
+      "enum": [
+        "view",
+        "control"
+      ]
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxFps": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 60
+        },
+        "maxBitrateKbps": {
+          "type": "integer",
+          "minimum": 500,
+          "maximum": 20000
+        },
+        "maxWidth": {
+          "type": "integer",
+          "minimum": 320,
+          "maximum": 3840
+        },
+        "preferCodec": {
+          "enum": [
+            "vp8"
+          ]
+        }
+      }
+    },
+    "client": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform"
+      ],
+      "properties": {
+        "platform": {
+          "enum": [
+            "web",
+            "desktop",
+            "android",
+            "ios"
+          ]
+        },
+        "appVersion": {
+          "type": "string"
+        },
+        "viewport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "width",
+            "height"
+          ],
+          "properties": {
+            "width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "dpr": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        }
+      }
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessionId"
+      ],
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "x-direction": "ingress",
+  "x-contract-version": "1.0"
+}

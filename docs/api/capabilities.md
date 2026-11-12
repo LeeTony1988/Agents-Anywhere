@@ -257,6 +257,25 @@ Capability is the source for actions.
 For example, Web may render "Codex is working" from `runtime.state.updated`, but
 the interrupt button is shown only when `session.interrupt` is effective.
 
+## Remote desktop capability
+
+Remote desktop is a connector-scoped capability, but it is not part of
+`ProtocolCapabilitySet` (whose scopes are runtime and session). It is served by
+`GET /api/v2/connectors/{connectorId}/remote-desktop` as three objects:
+
+```text
+connector.remote_desktop.view
+connector.remote_desktop.control
+connector.remote_desktop.clipboard
+```
+
+Each object has the same `supported / available / allowed / unavailableReason`
+semantics plus a monotonic `revision`. `host` in the response carries the
+Connector-reported host facts; `allowed` is always Server policy. Clients hide
+the entry when any of the three flags is false. A stopped screen host
+(`host_not_running`) is treated as available because the Server starts it on
+demand for the first session.
+
 ## Migration notes
 
 Existing `ProtocolCapabilitySet` fields can be reused during migration, but the

@@ -1,0 +1,9 @@
+{
+  "type": "remote_desktop.error",
+  "payload": {
+    "sessionId": "rds_01J9Z6K8Y3M2Q4T7V5W8X1B0C",
+    "code": "remote_desktop_unavailable",
+    "message": "Connector is offline",
+    "retryable": true
+  }
+}

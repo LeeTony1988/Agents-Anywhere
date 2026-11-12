@@ -5,6 +5,12 @@ import hashlib
 import json
 
 import pytest
+from alembic import command
+from sqlalchemy import BigInteger, create_engine, inspect, text
+from sqlalchemy.dialects.postgresql import asyncpg as postgresql_asyncpg
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
+
 from agent_server.infra.db.engine import build_engine, resolve_db_url
 from agent_server.infra.db.migrations import (
     CURRENT_SCHEMA_REVISION,
@@ -25,12 +31,7 @@ from agent_server.infra.db.schema import (
     sessions,
     timeline_items,
 )
-from alembic import command
 from migrations.versions import v2_24
-from sqlalchemy import BigInteger, create_engine, inspect, text
-from sqlalchemy.dialects.postgresql import asyncpg as postgresql_asyncpg
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.pool import NullPool
 
 
 def _sync_url(url: str) -> str:
@@ -282,6 +283,7 @@ def test_v2_0_database_upgrades_through_current_revision(fresh_database_url) -> 
         ("v2_52", "v2_53"),
         ("v2_53", "v2_54"),
         ("v2_54", "v2_55"),
+        ("v2_55", "v2_56"),
     ],
 )
 def test_every_adjacent_schema_upgrade(tmp_path,
@@ -1022,9 +1024,9 @@ def test_unversioned_runtime_schema_is_classified_by_actual_columns(tmp_path,
     )
 
 
-def test_current_schema_version_is_v2_55() -> None:
-    assert CURRENT_SCHEMA_REVISION == "v2_55"
-    assert CURRENT_SCHEMA_VERSION == "2.55"
+def test_current_schema_version_is_v2_56() -> None:
+    assert CURRENT_SCHEMA_REVISION == "v2_56"
+    assert CURRENT_SCHEMA_VERSION == "2.56"
 
 
 def test_v2_49_tracks_inventory_scans_without_rewriting_sessions(
@@ -2645,5 +2647,73 @@ def test_v2_55_adds_connector_device_settings(fresh_database_url) -> None:
     try:
         columns = {column["name"] for column in inspect(engine).get_columns("connectors")}
         assert "device_settings" not in columns
+    finally:
+        engine.dispose()
+
+def test_v2_56_adds_remote_desktop_sessions(fresh_database_url) -> None:
+    url = fresh_database_url
+    upgrade_database(db_url=url, revision="v2_56")
+    engine = create_engine(_sync_url(url))
+    try:
+        inspector = inspect(engine)
+        assert "remote_desktop_sessions" in inspector.get_table_names()
+        columns = {
+            column["name"]
+            for column in inspector.get_columns("remote_desktop_sessions")
+        }
+        assert columns == {
+            "id",
+            "connector_id",
+            "connector_name",
+            "user_id",
+            "created_by_participant_id",
+            "mode",
+            "display_id",
+            "state",
+            "end_reason",
+            "controller_identity",
+            "controller_lease_expires_at",
+            "linked_session_id",
+            "media_provider",
+            "media_room",
+            "quality_json",
+            "stats_summary_json",
+            "error_json",
+            "participants_json",
+            "consent_deadline_at",
+            "interrupted_at",
+            "last_input_at",
+            "last_viewer_left_at",
+            "started_at",
+            "ended_at",
+            "worker_id",
+            "created_at",
+            "updated_at",
+        }
+        indexes = {
+            index["name"]: index
+            for index in inspector.get_indexes("remote_desktop_sessions")
+        }
+        assert set(indexes) == {
+            "uq_rd_sessions_connector_active",
+            "idx_rd_sessions_connector_created",
+            "idx_rd_sessions_user_created",
+            "idx_rd_sessions_state_active",
+            "idx_rd_sessions_ended",
+        }
+        assert indexes["uq_rd_sessions_connector_active"]["unique"] is True
+        # No foreign keys: the audit trail must survive device/user deletion.
+        assert inspector.get_foreign_keys("remote_desktop_sessions") == []
+        with engine.begin() as connection:
+            connection.execute(text("DROP TABLE alembic_version"))
+    finally:
+        engine.dispose()
+    assert asyncio.run(classify_database(url)) == UnversionedDatabase("v2", "v2_56")
+
+    command.stamp(_alembic_config(url), "v2_56")
+    command.downgrade(_alembic_config(url), "v2_55")
+    engine = create_engine(_sync_url(url))
+    try:
+        assert "remote_desktop_sessions" not in inspect(engine).get_table_names()
     finally:
         engine.dispose()

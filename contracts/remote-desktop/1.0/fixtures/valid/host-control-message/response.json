@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "response",
+  "id": 7,
+  "ok": true,
+  "result": {
+    "accepted": true,
+    "state": "starting"
+  }
+}

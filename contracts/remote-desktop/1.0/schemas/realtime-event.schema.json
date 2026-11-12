@@ -1,0 +1,319 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:realtime-event",
+  "title": "RemoteDesktopRealtimeEvent",
+  "description": "Server -> client control-plane event on WS /api/v2/remote-desktop/sessions/{sessionId}/ws. Every event is {type,payload}; every payload carries sessionId. Payload objects intentionally allow unknown fields so clients can tolerate forward-compatible additions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "payload"
+  ],
+  "properties": {
+    "type": {
+      "type": "string"
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Subscribed"
+    },
+    {
+      "$ref": "#/$defs/SessionUpdated"
+    },
+    {
+      "$ref": "#/$defs/StatsUpdated"
+    },
+    {
+      "$ref": "#/$defs/ControlRevoked"
+    },
+    {
+      "$ref": "#/$defs/Ended"
+    },
+    {
+      "$ref": "#/$defs/Error"
+    }
+  ],
+  "$defs": {
+    "Subscribed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "payload"
+      ],
+      "properties": {
+        "type": {
+          "const": "remote_desktop.subscribed"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "sessionId",
+            "cursor"
+          ],
+          "properties": {
+            "sessionId": {
+              "type": "string"
+            },
+            "cursor": {
+              "type": "string",
+              "pattern": "^[0-9]*$",
+              "description": "Decimal string with the highest event sequence already delivered; an empty string means no history is being replayed."
+            }
+          }
+        }
+      }
+    },
+    "SessionUpdated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "payload"
+      ],
+      "properties": {
+        "type": {
+          "const": "remote_desktop.session.updated"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "sessionId",
+            "session"
+          ],
+          "properties": {
+            "sessionId": {
+              "type": "string"
+            },
+            "session": {
+              "$ref": "urn:agents-anywhere:remote-desktop:1.0:session"
+            }
+          }
+        }
+      }
+    },
+    "StatsUpdated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "payload"
+      ],
+      "properties": {
+        "type": {
+          "const": "remote_desktop.stats.updated"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "sessionId",
+            "stats",
+            "at"
+          ],
+          "properties": {
+            "sessionId": {
+              "type": "string"
+            },
+            "stats": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "fps",
+                "bitrateKbps",
+                "rttMs",
+                "jitterMs",
+                "packetLossPct",
+                "codec",
+                "width",
+                "height",
+                "encoder",
+                "subscribers"
+              ],
+              "properties": {
+                "fps": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "bitrateKbps": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "rttMs": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "jitterMs": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "packetLossPct": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "codec": {
+                  "const": "vp8"
+                },
+                "width": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "encoder": {
+                  "type": "string"
+                },
+                "subscribers": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      }
+    },
+    "ControlRevoked": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "payload"
+      ],
+      "properties": {
+        "type": {
+          "const": "remote_desktop.control.revoked"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "sessionId",
+            "reason"
+          ],
+          "properties": {
+            "sessionId": {
+              "type": "string"
+            },
+            "reason": {
+              "enum": [
+                "taken_over",
+                "lease_expired",
+                "policy_revoked"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "Ended": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "payload"
+      ],
+      "properties": {
+        "type": {
+          "const": "remote_desktop.ended"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "sessionId",
+            "endReason",
+            "endedAt"
+          ],
+          "properties": {
+            "sessionId": {
+              "type": "string"
+            },
+            "endReason": {
+              "enum": [
+                "client_ended",
+                "host_ended",
+                "consent_denied",
+                "consent_timeout",
+                "idle_timeout",
+                "duration_limit",
+                "connector_offline",
+                "media_error",
+                "policy_revoked",
+                "connector_deleted"
+              ],
+              "description": "Terminal endReason set from docs/remote-desktop-decisions.md section 3, including duration_limit. session.schema.json must be updated to carry the same set."
+            },
+            "endedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      }
+    },
+    "Error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "payload"
+      ],
+      "properties": {
+        "type": {
+          "const": "remote_desktop.error"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "sessionId",
+            "code",
+            "message",
+            "retryable"
+          ],
+          "properties": {
+            "sessionId": {
+              "type": "string"
+            },
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "details": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-direction": "egress",
+  "x-contract-version": "1.0"
+}

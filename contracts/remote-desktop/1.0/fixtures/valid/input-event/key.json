@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "seq": 41,
+  "ts": 1762944000123,
+  "t": "key",
+  "a": "down",
+  "code": "KeyC",
+  "mods": ["ctrl", "shift"],
+  "repeat": false
+}

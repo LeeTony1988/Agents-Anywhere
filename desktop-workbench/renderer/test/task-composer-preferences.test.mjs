@@ -19,7 +19,7 @@ import {
 const source = readFileSync(
   new URL("../src/components/task-composer.tsx", import.meta.url),
   "utf8",
-)
+).replace(/\r\n/g, "\n")
 
 function sourceBetween(start, end) {
   const startIndex = source.indexOf(start)

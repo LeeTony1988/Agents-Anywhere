@@ -1,0 +1,9 @@
+{
+  "provider": "livekit",
+  "url": "wss://rtc.example.com",
+  "room": "rd_rds_01JABCDEFGH",
+  "identity": "viewer:pt_abcdefghijklmnopqrstuvwx",
+  "token": "eyJhbGciOiJIUzI1NiJ9.payload.signature",
+  "tokenExpiresAt": "2026-11-13T00:10:00Z",
+  "canPublishData": false
+}

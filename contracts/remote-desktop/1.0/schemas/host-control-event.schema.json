@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:host-control-event",
+  "title": "RemoteDesktopHostControlEvent",
+  "description": "Host -> client control event. Acknowledgements and rejects are sent on the reliable LiveKit topic aa.input.ack; clipboard offers and denials are sent on aa.host.control. Every object is closed (additionalProperties:false).",
+  "type": "object",
+  "required": [
+    "v",
+    "t"
+  ],
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Ack"
+    },
+    {
+      "$ref": "#/$defs/Reject"
+    },
+    {
+      "$ref": "#/$defs/Clipboard"
+    },
+    {
+      "$ref": "urn:agents-anywhere:remote-desktop:1.0:clipboard-transfer"
+    }
+  ],
+  "$defs": {
+    "Ack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "ack"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "ack"
+        },
+        "ack": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      }
+    },
+    "Reject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "code"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "reject"
+        },
+        "code": {
+          "enum": [
+            "not_controller",
+            "rate_limited",
+            "invalid_event",
+            "unsupported",
+            "policy"
+          ]
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      }
+    },
+    "Clipboard": {
+      "type": "object",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ClipboardOffer"
+        },
+        {
+          "$ref": "#/$defs/ClipboardDenied"
+        }
+      ]
+    },
+    "ClipboardOffer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "a",
+        "mime",
+        "size",
+        "dataBase64"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "clipboard"
+        },
+        "a": {
+          "const": "offer"
+        },
+        "mime": {
+          "const": "text/plain"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "dataBase64": {
+          "type": "string"
+        }
+      }
+    },
+    "ClipboardDenied": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "a",
+        "reason"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "clipboard"
+        },
+        "a": {
+          "const": "denied"
+        },
+        "reason": {
+          "enum": [
+            "policy",
+            "too_large",
+            "unsupported"
+          ]
+        }
+      }
+    }
+  },
+  "x-direction": "egress",
+  "x-contract-version": "1.0"
+}

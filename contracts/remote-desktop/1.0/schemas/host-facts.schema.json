@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:host-facts",
+  "title": "RemoteDesktopHostFacts",
+  "description": "Facts reported by aa-screen-host through the Connector. `allowed` is Server policy and never comes from the host.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "supported",
+    "available",
+    "platform",
+    "arch",
+    "hostVersion",
+    "displays",
+    "codecs",
+    "maxFps",
+    "input",
+    "permissions",
+    "activeSessions"
+  ],
+  "properties": {
+    "supported": {
+      "type": "boolean"
+    },
+    "available": {
+      "type": "boolean"
+    },
+    "unavailableReason": {
+      "anyOf": [
+        {
+          "enum": [
+            "connector_offline",
+            "host_not_running",
+            "host_not_installed",
+            "connector_outdated",
+            "unsupported_platform",
+            "screen_permission_denied",
+            "accessibility_permission_denied",
+            "device_policy_disabled",
+            "session_limit_reached",
+            "media_not_configured"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "platform": {
+      "enum": [
+        "windows",
+        "macos",
+        "linux",
+        "unknown"
+      ]
+    },
+    "arch": {
+      "enum": [
+        "x86_64",
+        "aarch64",
+        "unknown"
+      ]
+    },
+    "hostVersion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "displays": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "name",
+          "width",
+          "height",
+          "scale",
+          "primary"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "scale": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "primary": {
+            "type": "boolean"
+          },
+          "refreshHz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 480
+          },
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          }
+        }
+      },
+      "maxItems": 16
+    },
+    "codecs": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "vp8"
+        ]
+      },
+      "uniqueItems": true,
+      "maxItems": 4
+    },
+    "maxFps": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 120
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "pointer",
+        "keyboard",
+        "touch",
+        "clipboard"
+      ],
+      "properties": {
+        "pointer": {
+          "type": "boolean"
+        },
+        "keyboard": {
+          "type": "boolean"
+        },
+        "touch": {
+          "type": "boolean"
+        },
+        "clipboard": {
+          "type": "boolean"
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "screenRecording",
+        "accessibility",
+        "inputMonitoring"
+      ],
+      "properties": {
+        "screenRecording": {
+          "enum": [
+            "granted",
+            "denied",
+            "not_determined",
+            "unsupported"
+          ]
+        },
+        "accessibility": {
+          "enum": [
+            "granted",
+            "denied",
+            "not_determined",
+            "unsupported"
+          ]
+        },
+        "inputMonitoring": {
+          "enum": [
+            "granted",
+            "denied",
+            "not_determined",
+            "unsupported"
+          ]
+        }
+      }
+    },
+    "activeSessions": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    }
+  },
+  "x-direction": "egress",
+  "x-contract-version": "1.0"
+}

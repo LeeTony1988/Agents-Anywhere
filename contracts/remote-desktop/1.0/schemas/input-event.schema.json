@@ -1,0 +1,394 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:input-event",
+  "title": "RemoteDesktopInputEvent",
+  "description": "Client -> host input event carried as JSON on the reliable LiveKit data topic aa.input. High-rate pointer motion uses the 12-byte binary aa.pointer frame documented in pointer-frame.md instead. Host -> client acknowledgements, rejects and clipboard responses are defined by host-control-event.schema.json; this schema has no ack or denied branch.",
+  "type": "object",
+  "required": [
+    "v",
+    "t"
+  ],
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Pointer"
+    },
+    {
+      "$ref": "#/$defs/Wheel"
+    },
+    {
+      "$ref": "#/$defs/Key"
+    },
+    {
+      "$ref": "#/$defs/Text"
+    },
+    {
+      "$ref": "#/$defs/Clipboard"
+    },
+    {
+      "$ref": "#/$defs/Ping"
+    },
+    {
+      "$ref": "#/$defs/ReleaseAll"
+    },
+    {
+      "$ref": "urn:agents-anywhere:remote-desktop:1.0:clipboard-transfer"
+    }
+  ],
+  "$defs": {
+    "Pointer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "seq",
+        "t",
+        "a",
+        "x",
+        "y"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "ts": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Client timestamp in milliseconds since the Unix epoch."
+        },
+        "t": {
+          "const": "pointer"
+        },
+        "a": {
+          "enum": [
+            "move",
+            "down",
+            "up"
+          ]
+        },
+        "x": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "b": {
+          "enum": [
+            "left",
+            "right",
+            "middle"
+          ]
+        },
+        "d": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15,
+          "default": 0,
+          "description": "Display index selected for the session."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "a": {
+                "enum": [
+                  "down",
+                  "up"
+                ]
+              }
+            },
+            "required": [
+              "a"
+            ]
+          },
+          "then": {
+            "required": [
+              "b"
+            ]
+          }
+        }
+      ]
+    },
+    "Wheel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "seq",
+        "t",
+        "dx",
+        "dy"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "ts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "t": {
+          "const": "wheel"
+        },
+        "dx": {
+          "type": "number"
+        },
+        "dy": {
+          "type": "number"
+        },
+        "unit": {
+          "enum": [
+            "pixel",
+            "line"
+          ],
+          "default": "pixel"
+        },
+        "d": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15,
+          "default": 0
+        }
+      }
+    },
+    "Key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "seq",
+        "t",
+        "a",
+        "code"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "ts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "t": {
+          "const": "key"
+        },
+        "a": {
+          "enum": [
+            "down",
+            "up"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9]{1,24}$",
+          "description": "W3C UI Events KeyboardEvent.code, e.g. KeyA, Digit1, Escape, ControlLeft."
+        },
+        "mods": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "ctrl",
+              "alt",
+              "shift",
+              "meta"
+            ]
+          },
+          "uniqueItems": true,
+          "default": []
+        },
+        "repeat": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "Text": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "seq",
+        "t",
+        "s"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "ts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "t": {
+          "const": "text"
+        },
+        "s": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      }
+    },
+    "Clipboard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "seq",
+        "t",
+        "a",
+        "mime"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "ts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "t": {
+          "const": "clipboard"
+        },
+        "a": {
+          "enum": [
+            "offer",
+            "request"
+          ]
+        },
+        "mime": {
+          "const": "text/plain"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "dataBase64": {
+          "type": "string",
+          "description": "Base64-encoded UTF-8 text. Required for offer and forbidden for request."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "a": {
+                "const": "offer"
+              }
+            },
+            "required": [
+              "a"
+            ]
+          },
+          "then": {
+            "required": [
+              "size",
+              "dataBase64"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "a": {
+                "const": "request"
+              }
+            },
+            "required": [
+              "a"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "dataBase64"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Ping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "at"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "ping"
+        },
+        "at": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ReleaseAll": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "reason"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "t": {
+          "const": "release_all"
+        },
+        "reason": {
+          "enum": [
+            "blur",
+            "pagehide",
+            "handoff",
+            "manual"
+          ]
+        }
+      }
+    }
+  },
+  "x-direction": "ingress",
+  "x-contract-version": "1.0"
+}

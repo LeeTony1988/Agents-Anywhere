@@ -1,0 +1,7 @@
+{
+  "type": "remote_desktop.control.revoked",
+  "payload": {
+    "sessionId": "rds_01J9Z6K8Y3M2Q4T7V5W8X1B0C",
+    "reason": "taken_over"
+  }
+}

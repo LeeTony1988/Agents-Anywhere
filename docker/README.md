@@ -2,7 +2,7 @@
 
 Docker deployment for the Agents Anywhere v2 mainline. For existing databases,
 read [Upgrading](../docs/upgrading.md) before running Compose. The current
-schema revision is `v2_35`; historical migration notes below explain individual
+schema revision is `v2_56`; historical migration notes below explain individual
 changes, not the latest target revision.
 
 The current Web console lives in `web-next/`. Production Docker builds export it
@@ -37,6 +37,32 @@ docker compose -f docker/docker-compose.postgres.yml up --build
 ```
 
 Open `http://127.0.0.1:5174`.
+
+## Remote desktop (optional)
+
+Remote desktop is disabled by default. To enable it, start the compose `livekit`
+profile with the same API key/secret the Server uses:
+
+```bash
+AGENT_SERVER_REMOTE_DESKTOP_ENABLED=true \
+AGENT_SERVER_LIVEKIT_URL=wss://rtc.example.com \
+AGENT_SERVER_LIVEKIT_API_KEY=aa_remote_desktop \
+AGENT_SERVER_LIVEKIT_API_SECRET=change-me-livekit-secret \
+AGENT_SERVER_LIVEKIT_TURN_DOMAIN=turn.example.com \
+docker compose -f docker/docker-compose.postgres.yml --profile remote-desktop up --build
+```
+
+`docker/livekit.yaml` is mounted read-only. Mount a real TURN certificate/key
+(`AGENT_SERVER_LIVEKIT_TURN_CERT` / `AGENT_SERVER_LIVEKIT_TURN_KEY`) for TURN/TLS.
+Open `7880/tcp`, `7881/tcp`, `50000-50100/udp`, `5349/tcp` and `3478/udp`; if the
+deployment is behind NAT, set `rtc.ips` or use host networking instead of the
+default `use_external_ip: false`. The LiveKit webhook points at
+`http://server:8000/api/v2/internal/livekit/webhook` inside the compose network.
+
+Reverse proxy notes: keep WebSocket `Upgrade`/`Connection` headers for
+`/api/v2/remote-desktop/sessions/*/ws`, do not rewrite the LiveKit webhook body,
+and allow request bodies up to the screenshot limit. TURN/TLS can share port 443
+with a layer-4 proxy when the corporate network only allows 443.
 
 ## Development Image
 

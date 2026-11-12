@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:session-response",
+  "title": "RemoteDesktopSessionResponse",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "session"
+  ],
+  "properties": {
+    "session": {
+      "$ref": "urn:agents-anywhere:remote-desktop:1.0:session"
+    }
+  },
+  "x-direction": "egress",
+  "x-contract-version": "1.0"
+}

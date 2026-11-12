@@ -17,14 +17,25 @@ class _Unsupported:
         return False
 
 
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "confirmQuitOnShutdown": False,
+    "remoteDesktopEnabled": False,
+    "remoteDesktopAllowControl": False,
+    "remoteDesktopRequireConsent": True,
+    "remoteDesktopAllowUnattended": False,
+    "remoteDesktopClipboard": False,
+    "remoteDesktopMaxFps": 30,
+    "remoteDesktopMaxBitrateKbps": 4000,
+}
+
+
 def test_normalize_keeps_known_booleans_and_defaults_the_rest() -> None:
-    assert normalize_device_settings(None) == {"confirmQuitOnShutdown": False}
-    assert normalize_device_settings({"confirmQuitOnShutdown": "yes", "future": 1}) == {
-        "confirmQuitOnShutdown": False
-    }
-    assert normalize_device_settings({"confirmQuitOnShutdown": True}) == {
-        "confirmQuitOnShutdown": True
-    }
+    assert normalize_device_settings(None) == DEFAULT_SETTINGS
+    assert normalize_device_settings({"confirmQuitOnShutdown": "yes", "future": 1}) == DEFAULT_SETTINGS
+    assert normalize_device_settings(
+        {"confirmQuitOnShutdown": True, "remoteDesktopMaxFps": 45}
+    ) == {**DEFAULT_SETTINGS, "confirmQuitOnShutdown": True, "remoteDesktopMaxFps": 45}
+    assert normalize_device_settings({"remoteDesktopMaxFps": 999}) == DEFAULT_SETTINGS
 
 
 def test_apply_hands_normalized_settings_to_the_host() -> None:
@@ -42,7 +53,7 @@ def test_apply_hands_normalized_settings_to_the_host() -> None:
     )
 
     assert result == {"applied": True}
-    assert received == [{"confirmQuitOnShutdown": True}]
+    assert received == [{**DEFAULT_SETTINGS, "confirmQuitOnShutdown": True}]
 
 
 def test_apply_without_a_host_still_acknowledges() -> None:
@@ -62,7 +73,7 @@ def test_controller_publishes_device_settings_in_its_state(tmp_path) -> None:
         await controller._apply_device_settings({"confirmQuitOnShutdown": True})
         await controller._apply_device_settings({"confirmQuitOnShutdown": True})
         state = controller.get_state()
-        assert state["deviceSettings"] == {"confirmQuitOnShutdown": True}
+        assert state["deviceSettings"] == {**DEFAULT_SETTINGS, "confirmQuitOnShutdown": True}
         # The control surface model accepts the published state.
         assert ConnectorState.model_validate(state).deviceSettings.confirmQuitOnShutdown is True
 

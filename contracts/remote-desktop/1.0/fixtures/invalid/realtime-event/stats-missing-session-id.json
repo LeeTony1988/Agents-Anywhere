@@ -1,0 +1,18 @@
+{
+  "type": "remote_desktop.stats.updated",
+  "payload": {
+    "stats": {
+      "fps": 30,
+      "bitrateKbps": 2400,
+      "rttMs": 35,
+      "jitterMs": 3,
+      "packetLossPct": 0.1,
+      "codec": "vp8",
+      "width": 1280,
+      "height": 720,
+      "encoder": "libwebrtc-sw",
+      "subscribers": 1
+    },
+    "at": "2026-11-13T00:34:58Z"
+  }
+}

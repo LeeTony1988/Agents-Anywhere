@@ -44,6 +44,9 @@ from agent_server.api import (
     shares,
     tokens_link,
 )
+from agent_server.api import (
+    remote_desktop as remote_desktop_api,
+)
 from agent_server.core.api_namespace import API_V2_PREFIX
 from agent_server.core.process_settings import ProcessSettings
 from agent_server.core.setup_token import SetupToken
@@ -62,6 +65,7 @@ from agent_server.infra.model_gateway_probe import (
     private_gateways_allowed,
 )
 from agent_server.infra.redis_coordinator import RedisCoordinator
+from agent_server.infra.remote_desktop_broker import RemoteDesktopBroker
 from agent_server.infra.repositories.facade import Store
 from agent_server.infra.terminal_broker import TerminalBroker
 from agent_server.infra.terminal_stream_hub import TerminalStreamHub
@@ -77,6 +81,12 @@ from agent_server.services.device_runtimes import DeviceRuntimeService
 from agent_server.services.effective_capabilities import (
     ConnectorCapabilityRefresh,
 )
+from agent_server.services.remote_desktop import RemoteDesktopService
+from agent_server.services.remote_desktop_maintenance import (
+    RemoteDesktopMaintenanceLoop,
+)
+from agent_server.services.remote_desktop_media import build_media_provider
+from agent_server.services.remote_desktop_policy import current_settings
 from agent_server.services.session_runtime_state_cache import SessionRuntimeStateCache
 from agent_server.services.setup_tokens import SetupTokenService
 from agent_server.services.shell_tasks import ShellTaskManager
@@ -86,6 +96,14 @@ from agent_server.services.usage_maintenance import UsageMaintenanceLoop
 from agent_server.services.workspace import WorkspaceServiceError
 
 CONNECTOR_PRESENCE_SWEEP_SECONDS = 5
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
 
 
 async def _connector_presence_watchdog(app: FastAPI) -> None:
@@ -106,6 +124,15 @@ async def _connector_presence_watchdog(app: FastAPI) -> None:
                     connection.connection_id,
                 )
             app.state.capability_refresh.request(connection.connector_id)
+            try:
+                await app.state.remote_desktop_service.mark_connector_interrupted(
+                    connection.connector_id
+                )
+            except Exception:  # noqa: BLE001 - keep the presence watchdog alive
+                logger.exception(
+                    "failed to interrupt remote desktop sessions connector_id={}",
+                    connection.connector_id,
+                )
             await publish_dashboard_changed(
                 app.state.store,
                 app.state.timeline_broker,
@@ -153,6 +180,8 @@ def create_app(
             await app.state.timeline_write_buffer.start()
             await app.state.terminal_stream_hub.start()
             await app.state.terminal_broker.start()
+            await app.state.remote_desktop_broker.start()
+            await app.state.remote_desktop_maintenance.start()
             await app.state.rpc.start()
             await app.state.usage_recorder.start()
             presence_task = asyncio.create_task(_connector_presence_watchdog(app))
@@ -213,27 +242,31 @@ def create_app(
             except Exception:  # noqa: BLE001 - shutdown must continue
                 logger.exception("failed to flush usage events on shutdown")
             await app.state.capability_refresh.close()
+            await app.state.remote_desktop_maintenance.close()
             try:
-                await app.state.rpc.close()
+                await app.state.remote_desktop_broker.close()
             finally:
                 try:
-                    await app.state.timeline_write_buffer.close()
+                    await app.state.rpc.close()
                 finally:
                     try:
-                        await app.state.terminal_broker.close()
+                        await app.state.timeline_write_buffer.close()
                     finally:
                         try:
-                            await app.state.terminal_stream_hub.close()
+                            await app.state.terminal_broker.close()
                         finally:
                             try:
-                                await app.state.timeline_broker.close()
+                                await app.state.terminal_stream_hub.close()
                             finally:
                                 try:
-                                    await app.state.redis.close()
+                                    await app.state.timeline_broker.close()
                                 finally:
-                                    await app.state.store.close()
+                                    try:
+                                        await app.state.redis.close()
+                                    finally:
+                                        await app.state.store.close()
 
-    app = FastAPI(title="Agent Server", version="2.2.0", lifespan=lifespan)
+    app = FastAPI(title="Agent Server", version="2.3.0", lifespan=lifespan)
     app.add_exception_handler(
         ConnectorServiceError,
         error_handlers.connector_service_error_handler,
@@ -333,6 +366,7 @@ def create_app(
     app.state.connector_deletion_recovery = ConnectorDeletionRecovery(
         app.state.store, app.state.rpc, app.state.terminal_broker,
         app.state.timeline_write_buffer, app.state.session_runtime_state_cache, app.state.timeline_broker,
+        remote_desktop=lambda: getattr(app.state, "remote_desktop_service", None),
     )
     app.state.usage_recorder = UsageRecorder(
         app.state.store,
@@ -346,6 +380,37 @@ def create_app(
         retention_days=int(os.environ.get("AGENT_SERVER_USAGE_RETENTION_DAYS", "400")),
     )
     app.state.ws_tickets = ClientWsTicketManager(app.state.redis)
+    app.state.remote_desktop_broker = RemoteDesktopBroker(app.state.redis)
+    app.state.remote_desktop_media_bundle = build_media_provider(os.environ)
+    _remote_desktop_media, _rd_enabled, _rd_config_error = (
+        app.state.remote_desktop_media_bundle
+    )
+    if _rd_enabled and _rd_config_error:
+        logger.warning("remote desktop media is misconfigured: {}", _rd_config_error)
+    app.state.remote_desktop_service = RemoteDesktopService(
+        app.state.store,
+        app.state.rpc,
+        _remote_desktop_media,
+        app.state.remote_desktop_broker,
+        app.state.ws_tickets,
+        lambda connector_id: current_settings(
+            app.state.store, connector_id
+        ),
+        max_viewers_per_session=_env_positive_int(
+            "AGENT_SERVER_REMOTE_DESKTOP_MAX_VIEWERS_PER_SESSION", 3
+        ),
+    )
+    app.state.remote_desktop_maintenance = RemoteDesktopMaintenanceLoop(
+        app.state.store,
+        app.state.remote_desktop_service,
+        presence=app.state.remote_desktop_broker,
+        interval_seconds=float(
+            os.environ.get("AGENT_SERVER_REMOTE_DESKTOP_SWEEP_SECONDS", "5")
+        ),
+        idle_timeout_seconds=float(
+            os.environ.get("AGENT_SERVER_REMOTE_DESKTOP_IDLE_TIMEOUT_SECONDS", "900")
+        ),
+    )
     app.state.setup_token = SetupToken()
     app.state.started_at_iso = utc_now()
     app.state.started_at_monotonic = time.monotonic()
@@ -439,6 +504,7 @@ def create_app(
     app.include_router(session_goals.router, prefix=API_V2_PREFIX)
     app.include_router(sessions_fs.router, prefix=API_V2_PREFIX)
     app.include_router(sessions_terminal.router, prefix=API_V2_PREFIX)
+    app.include_router(remote_desktop_api.router, prefix=API_V2_PREFIX)
 
     static_dir = os.environ.get("AGENT_SERVER_STATIC_DIR")
     if static_dir:

@@ -1,0 +1,5 @@
+{
+  "type": "update_quality",
+  "maxFps": 15,
+  "maxBitrateKbps": 1500
+}

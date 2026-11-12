@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "type": "error",
+  "error": {
+    "code": "rd_host_protocol_error",
+    "message": "invalid NDJSON frame",
+    "retryable": false
+  }
+}

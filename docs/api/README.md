@@ -98,6 +98,22 @@ terminal lifecycle         -> session/connector terminal streams
 
 See [Realtime API](./realtime.md).
 
+### Remote desktop API
+
+Remote desktop is a connector-scoped capability, not a runtime capability. Its design and
+wire contract live outside the runtime protocol documents:
+
+```text
+/connectors/{connectorId}/remote-desktop
+/remote-desktop/sessions
+/remote-desktop/sessions/{sessionId}/*
+WS /remote-desktop/sessions/{sessionId}/ws
+```
+
+See [Remote desktop API](./remote-desktop.md), the
+[architecture and selection notes](../remote-desktop.md), and the wire contract
+[`contracts/remote-desktop/1.0`](../../contracts/remote-desktop/1.0/README.md).
+
 ## Removed legacy API areas
 
 The old legacy API list is intentionally removed from the target docs.

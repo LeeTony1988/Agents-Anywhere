@@ -1,0 +1,231 @@
+{
+  "artifacts": [
+    {
+      "direction": "egress",
+      "model": "RemoteDesktopCapability",
+      "path": "schemas/capability.schema.json",
+      "sha256": "f83c20f6eb540a4784b0668086f47fdff6b9a89cec52782546b348cd342b12f0",
+      "slug": "capability",
+      "transport": "http"
+    },
+    {
+      "direction": "ingress",
+      "model": "RemoteDesktopClientWsMessage",
+      "path": "schemas/client-ws-message.schema.json",
+      "sha256": "cb7549f5726c1878b49294eae37e0354f5987b4b69db8615c4a84359497c4f0d",
+      "slug": "client-ws-message",
+      "transport": "ws"
+    },
+    {
+      "direction": "bidirectional",
+      "model": "RemoteDesktopClipboardTransfer",
+      "path": "schemas/clipboard-transfer.schema.json",
+      "sha256": "cfd7d8441b6c74f54e6e5e3e07c76d85f74dc415d1af7d9f5ea8541651f64782",
+      "slug": "clipboard-transfer",
+      "transport": "datachannel"
+    },
+    {
+      "direction": "ingress",
+      "model": "RemoteDesktopDeviceSettings",
+      "path": "schemas/device-settings.schema.json",
+      "sha256": "220a236d7cc9e0c0c68f38300a0bebd033e6c79c9b95fc9da19366c8631eeb0d",
+      "slug": "device-settings",
+      "transport": "http"
+    },
+    {
+      "direction": "ingress",
+      "model": "RemoteDesktopEndRequest",
+      "path": "schemas/end-request.schema.json",
+      "sha256": "4d908ae03d5ceb1bae184f1d59a1cf97b01cb9a30662d2fca874f752c311ff06",
+      "slug": "end-request",
+      "transport": "http"
+    },
+    {
+      "direction": "egress",
+      "model": "RemoteDesktopErrorResponse",
+      "path": "schemas/error.schema.json",
+      "sha256": "228b3a985582398bd9efa867e60c55f3620e0a16e4bf2e074c5af20b93b83df0",
+      "slug": "error",
+      "transport": "http"
+    },
+    {
+      "direction": "ingress",
+      "model": "RemoteDesktopHeartbeatRequest",
+      "path": "schemas/heartbeat-request.schema.json",
+      "sha256": "9e54c20f8302f4ab40a6a8946410b9edee0406c8c8cdde59aef4bf66935f38a8",
+      "slug": "heartbeat-request",
+      "transport": "http"
+    },
+    {
+      "direction": "egress",
+      "model": "RemoteDesktopHostControlEvent",
+      "path": "schemas/host-control-event.schema.json",
+      "sha256": "e13cb9f3988da16599dfd4dcf9c48e1223017e8f51ade4f9f5bd768130da99d3",
+      "slug": "host-control-event",
+      "transport": "datachannel"
+    },
+    {
+      "direction": "bidirectional",
+      "model": "RemoteDesktopHostControlMessage",
+      "path": "schemas/host-control-message.schema.json",
+      "sha256": "303eef0e0a38157adf4b0ff2e4eaea6d7111311128591c974e13f0b8099abc3f",
+      "slug": "host-control-message",
+      "transport": "stdio"
+    },
+    {
+      "direction": "egress",
+      "model": "RemoteDesktopHostFacts",
+      "path": "schemas/host-facts.schema.json",
+      "sha256": "616cc18f4e5aa88b6ac328b6fbed9cc57de7c670079fd9cfa1910d893e82662a",
+      "slug": "host-facts",
+      "transport": "http"
+    },
+    {
+      "direction": "egress",
+      "model": "RemoteDesktopHostInfo",
+      "path": "schemas/host-info.schema.json",
+      "sha256": "b3a83c5e7ea1b0a52cbfa21f5cba990c775cb3958516c7f0bd5ba371b2a90b70",
+      "slug": "host-info",
+      "transport": "http"
+    },
+    {
+      "direction": "ingress",
+      "model": "RemoteDesktopInputEvent",
+      "path": "schemas/input-event.schema.json",
+      "sha256": "c15417425b5f5eb04cd8ea8aba3d95a6d4646bfe436bb5e822d229161e57b72b",
+      "slug": "input-event",
+      "transport": "datachannel"
+    },
+    {
+      "direction": "egress",
+      "model": "RemoteDesktopMediaGrant",
+      "path": "schemas/media-grant.schema.json",
+      "sha256": "12fd972a1751df2381c29c942469c92c2f270d162427d4221bbd0d17fd84da17",
+      "slug": "media-grant",
+      "transport": "http"
+    },
+    {
+      "direction": "egress",
+      "model": "RemoteDesktopRealtimeEvent",
+      "path": "schemas/realtime-event.schema.json",
+      "sha256": "a47c1388927a3de97978d168102c9e7f3424fdfb92cf0ce5f366ae19fe4b38a3",
+      "slug": "realtime-event",
+      "transport": "ws"
+    },
+    {
+      "direction": "ingress",
+      "model": "RemoteDesktopReleaseControlRequest",
+      "path": "schemas/release-control-request.schema.json",
+      "sha256": "0d65eb4da3532710b95be3c0adc7f4260dbb1e5121fdc5d6f9f940e938078ee2",
+      "slug": "release-control-request",
+      "transport": "http"
+    },
+    {
+      "direction": "ingress",
+      "model": "RemoteDesktopScreenshotRequest",
+      "path": "schemas/screenshot-request.schema.json",
+      "sha256": "3658b43987d4b36877bccc389162f024b36c507c4d587b8ec72e031e0081a831",
+      "slug": "screenshot-request",
+      "transport": "http"
+    },
+    {
+      "direction": "egress",
+      "model": "RemoteDesktopScreenshotResponse",
+      "path": "schemas/screenshot-response.schema.json",
+      "sha256": "7b6ddf13e7680968894ee663afc96610fe4a9168464c288fc67624c927c5bdb3",
+      "slug": "screenshot-response",
+      "transport": "http"
+    },
+    {
+      "direction": "ingress",
+      "model": "RemoteDesktopSessionCreateRequest",
+      "path": "schemas/session-create-request.schema.json",
+      "sha256": "e1d149cf7658806f7819644fda1a21cf4a95cc48b9f128541a11ba014e547299",
+      "slug": "session-create-request",
+      "transport": "http"
+    },
+    {
+      "direction": "egress",
+      "model": "RemoteDesktopSessionCreateResponse",
+      "path": "schemas/session-create-response.schema.json",
+      "sha256": "aaf3c1367f339f189adfccf0d938ccb864107ce155ec93c4eb8f6e040b897f99",
+      "slug": "session-create-response",
+      "transport": "http"
+    },
+    {
+      "direction": "egress",
+      "model": "RemoteDesktopSessionListResponse",
+      "path": "schemas/session-list-response.schema.json",
+      "sha256": "12c071260b6e2b5ca8474925f4dc66c428e222307bb33ea4e1c420830f5f6616",
+      "slug": "session-list-response",
+      "transport": "http"
+    },
+    {
+      "direction": "egress",
+      "model": "RemoteDesktopSessionResponse",
+      "path": "schemas/session-response.schema.json",
+      "sha256": "5a027a6b497b797474e529a834628f8df9179c2d20e29030cfbd1a8ce14ca379",
+      "slug": "session-response",
+      "transport": "http"
+    },
+    {
+      "direction": "egress",
+      "model": "RemoteDesktopSession",
+      "path": "schemas/session.schema.json",
+      "sha256": "aba9e54b3afe158137e4f9b3406254bf700b779bb2a98991294cd71dc9bd52d4",
+      "slug": "session",
+      "transport": "http"
+    },
+    {
+      "direction": "ingress",
+      "model": "RemoteDesktopTakeControlRequest",
+      "path": "schemas/take-control-request.schema.json",
+      "sha256": "9451e4837952217b3483f13e50526e27024f0d3d4dea87cd5c82b700ef85a037",
+      "slug": "take-control-request",
+      "transport": "http"
+    },
+    {
+      "direction": "egress",
+      "model": "RemoteDesktopTakeControlResponse",
+      "path": "schemas/take-control-response.schema.json",
+      "sha256": "2023015f8fa24defdfaea57aeb3606cea8067ba9f5434559999471de040296b1",
+      "slug": "take-control-response",
+      "transport": "http"
+    },
+    {
+      "direction": "ingress",
+      "model": "RemoteDesktopTicketRequest",
+      "path": "schemas/ticket-request.schema.json",
+      "sha256": "8fe15eba03d0b8ae9f427e76867904f9cb50a53ecaa9fbbcb96a4df702a4e575",
+      "slug": "ticket-request",
+      "transport": "http"
+    },
+    {
+      "direction": "egress",
+      "model": "RemoteDesktopTicketResponse",
+      "path": "schemas/ticket-response.schema.json",
+      "sha256": "9ad1ef593cc6abacbf184797bfff2ea584bb05f822899c3958dcd82b0d795004",
+      "slug": "ticket-response",
+      "transport": "http"
+    },
+    {
+      "direction": "ingress",
+      "model": "RemoteDesktopTokenRefreshRequest",
+      "path": "schemas/token-refresh-request.schema.json",
+      "sha256": "346df00497f6d6d3b6d8b9de872a513d1cc8c575bc1eb08661b8ddf90af66e63",
+      "slug": "token-refresh-request",
+      "transport": "http"
+    },
+    {
+      "direction": "egress",
+      "model": "RemoteDesktopTokenRefreshResponse",
+      "path": "schemas/token-refresh-response.schema.json",
+      "sha256": "c75785d672b0720f43f34f607f6dbb31c9f57f3674d12034c231b51cbcf832a3",
+      "slug": "token-refresh-response",
+      "transport": "http"
+    }
+  ],
+  "contractVersion": "1.0",
+  "jsonSchemaDraft": "https://json-schema.org/draft/2020-12/schema",
+  "source": "docs/remote-desktop.md"
+}

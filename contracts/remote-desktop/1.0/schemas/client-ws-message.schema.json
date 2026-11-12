@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:client-ws-message",
+  "title": "RemoteDesktopClientWsMessage",
+  "description": "Client -> Server control-plane frame on the remote-desktop WebSocket. Media and input never travel on this socket.",
+  "type": "object",
+  "required": [
+    "type"
+  ],
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Ping"
+    },
+    {
+      "$ref": "#/$defs/RequestKeyframe"
+    },
+    {
+      "$ref": "#/$defs/UpdateQuality"
+    }
+  ],
+  "$defs": {
+    "Ping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "at"
+      ],
+      "properties": {
+        "type": {
+          "const": "ping"
+        },
+        "at": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "RequestKeyframe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "request_keyframe"
+        }
+      }
+    },
+    "UpdateQuality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "update_quality"
+        },
+        "maxFps": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 60
+        },
+        "maxBitrateKbps": {
+          "type": "integer",
+          "minimum": 500,
+          "maximum": 20000
+        },
+        "maxWidth": {
+          "type": "integer",
+          "minimum": 320,
+          "maximum": 3840
+        }
+      }
+    }
+  },
+  "x-direction": "ingress",
+  "x-contract-version": "1.0"
+}

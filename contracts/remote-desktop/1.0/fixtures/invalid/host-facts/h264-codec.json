@@ -1,0 +1,37 @@
+{
+  "supported": true,
+  "available": true,
+  "unavailableReason": null,
+  "platform": "windows",
+  "arch": "x86_64",
+  "hostVersion": "1.0.0",
+  "displays": [
+    {
+      "id": "0",
+      "name": "DISPLAY1",
+      "width": 2560,
+      "height": 1440,
+      "scale": 1.5,
+      "primary": true,
+      "refreshHz": 60,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "codecs": [
+    "h264"
+  ],
+  "maxFps": 60,
+  "input": {
+    "pointer": true,
+    "keyboard": true,
+    "touch": false,
+    "clipboard": true
+  },
+  "permissions": {
+    "screenRecording": "granted",
+    "accessibility": "granted",
+    "inputMonitoring": "granted"
+  },
+  "activeSessions": 1
+}

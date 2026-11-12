@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:token-refresh-request",
+  "title": "RemoteDesktopTokenRefreshRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "participantId",
+    "role"
+  ],
+  "properties": {
+    "participantId": {
+      "type": "string",
+      "pattern": "^pt_[A-Za-z0-9_-]{16,64}$"
+    },
+    "role": {
+      "enum": [
+        "viewer",
+        "controller"
+      ]
+    }
+  },
+  "x-direction": "ingress",
+  "x-contract-version": "1.0"
+}

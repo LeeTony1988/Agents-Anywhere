@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "type": "request",
+  "id": 8,
+  "method": "host.explode",
+  "params": {}
+}

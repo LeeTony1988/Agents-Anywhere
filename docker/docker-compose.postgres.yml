@@ -39,6 +39,29 @@ services:
       timeout: 5s
       retries: 5
 
+  livekit:
+    image: livekit/livekit-server:v1.9.0
+    restart: unless-stopped
+    profiles: ["remote-desktop"]
+    command: ["--config", "/etc/livekit.yaml"]
+    depends_on:
+      redis-next:
+        condition: service_healthy
+    environment:
+      LIVEKIT_API_SECRET: ${AGENT_SERVER_LIVEKIT_API_SECRET:-change-me-livekit-secret}
+      LIVEKIT_TURN_DOMAIN: ${AGENT_SERVER_LIVEKIT_TURN_DOMAIN:-turn.example.com}
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+      - ${AGENT_SERVER_LIVEKIT_TURN_CERT:-../.local-dev/turn.crt}:/etc/livekit/turn.crt:ro
+      - ${AGENT_SERVER_LIVEKIT_TURN_KEY:-../.local-dev/turn.key}:/etc/livekit/turn.key:ro
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50100:50000-50100/udp"
+      - "5349:5349"
+      - "3478:3478/udp"
+      - "6789:6789"
+
   migrate-next:
     build:
       context: ..
@@ -75,6 +98,10 @@ services:
       AGENT_SERVER_SECRET: ${AGENT_SERVER_SECRET:-change-me-before-production}
       AGENT_SERVER_PUBLIC_ORIGIN: ${AGENT_SERVER_PUBLIC_ORIGIN:-}
       AGENT_SERVER_CORS_ORIGINS: ${AGENT_SERVER_CORS_ORIGINS:-http://127.0.0.1:${AGENTS_ANYWHERE_WEB_PORT:-5174},http://localhost:${AGENTS_ANYWHERE_WEB_PORT:-5174}}
+      AGENT_SERVER_REMOTE_DESKTOP_ENABLED: ${AGENT_SERVER_REMOTE_DESKTOP_ENABLED:-false}
+      AGENT_SERVER_LIVEKIT_URL: ${AGENT_SERVER_LIVEKIT_URL:-}
+      AGENT_SERVER_LIVEKIT_API_KEY: ${AGENT_SERVER_LIVEKIT_API_KEY:-aa_remote_desktop}
+      AGENT_SERVER_LIVEKIT_API_SECRET: ${AGENT_SERVER_LIVEKIT_API_SECRET:-}
     volumes:
       - agents-anywhere-files-next:/data
     ports:

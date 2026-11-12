@@ -1,0 +1,17 @@
+{
+  "capabilityId": "connector.remote_desktop.control",
+  "scope": "connector",
+  "connectorId": "conn_x",
+  "supported": true,
+  "available": true,
+  "allowed": true,
+  "unavailableReason": null,
+  "revision": -1,
+  "metadata": {
+    "maxFps": 60,
+    "codecs": [
+      "vp8"
+    ],
+    "clipboard": true
+  }
+}

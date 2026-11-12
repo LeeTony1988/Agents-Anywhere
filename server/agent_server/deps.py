@@ -12,6 +12,7 @@ from agent_server.core.models import UserView
 from agent_server.infra.connector_gateway import ConnectorGateway
 from agent_server.infra.connector_rpc import ConnectorRpcManager
 from agent_server.infra.fs_downloads import FsDownloadRelayManager
+from agent_server.infra.remote_desktop_broker import RemoteDesktopBroker
 from agent_server.infra.repositories.facade import Store
 from agent_server.infra.terminal_broker import TerminalBroker
 from agent_server.infra.timeline_broker import TimelineBroker
@@ -33,6 +34,10 @@ from agent_server.services.model_channels import (
     ModelChannelService,
 )
 from agent_server.services.model_config import ModelConfigError, ModelConfigService
+from agent_server.services.remote_desktop import RemoteDesktopService
+from agent_server.services.remote_desktop_notifications import (
+    RemoteDesktopNotificationHandler,
+)
 from agent_server.services.session_run import SessionRunConflictError, SessionRunService
 from agent_server.services.session_runtime_state_cache import SessionRuntimeStateCache
 from agent_server.services.terminal import TerminalService
@@ -71,6 +76,9 @@ def get_connector_ingest_service(conn: HTTPConnection) -> ConnectorIngestService
             realtime,
             conn.app.state.timeline_write_buffer,
             usage_recorder=get_usage_recorder(conn),
+            remote_desktop=RemoteDesktopNotificationHandler(
+                get_remote_desktop_service(conn)
+            ),
         ),
         conn.app.state.timeline_broker,
         conn.app.state.device_runtime_service,
@@ -79,6 +87,14 @@ def get_connector_ingest_service(conn: HTTPConnection) -> ConnectorIngestService
         conn.app.state.capability_refresh,
         runtime_event=model_channel_service_for(conn.app.state).runtime_event,
     )
+
+
+def get_remote_desktop_service(conn: HTTPConnection) -> RemoteDesktopService:
+    return conn.app.state.remote_desktop_service
+
+
+def get_remote_desktop_broker(conn: HTTPConnection) -> RemoteDesktopBroker:
+    return conn.app.state.remote_desktop_broker
 
 
 def get_usage_recorder(conn: HTTPConnection) -> UsageRecorder:

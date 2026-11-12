@@ -1,0 +1,25 @@
+{
+  "supported": false,
+  "available": false,
+  "unavailableReason": "host_not_installed",
+  "platform": "windows",
+  "arch": "x86_64",
+  "hostVersion": null,
+  "displays": [],
+  "codecs": [
+    "vp8"
+  ],
+  "maxFps": 60,
+  "input": {
+    "pointer": true,
+    "keyboard": true,
+    "touch": false,
+    "clipboard": true
+  },
+  "permissions": {
+    "screenRecording": "granted",
+    "accessibility": "granted",
+    "inputMonitoring": "granted"
+  },
+  "activeSessions": 1
+}

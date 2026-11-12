@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -28,8 +29,19 @@ async def delete_connector_data(
     terminals: TerminalBroker,
     timeline_buffer: TimelineWriteBuffer,
     runtime_state_cache: SessionRuntimeStateCache,
+    *,
+    remote_desktop: Callable[[], object | None] | None = None,
 ) -> None:
     async with store.connector_lifecycle(connector_id):
+        desktop = remote_desktop() if remote_desktop is not None else None
+        if desktop is not None:
+            try:
+                await desktop.end_for_connector(connector_id)  # type: ignore[attr-defined]
+            except Exception as error:  # noqa: BLE001 - deletion still commits
+                logger.warning(
+                    "remote desktop cleanup failed during connector deletion: {}",
+                    error,
+                )
         session_ids = await store.begin_connector_deletion(
             connector_id, user_id=user_id
         )
@@ -65,6 +77,7 @@ class ConnectorDeletionRecovery:
         timeline_buffer: TimelineWriteBuffer,
         runtime_state_cache: SessionRuntimeStateCache,
         broker: TimelineBroker,
+        remote_desktop: Callable[[], object | None] | None = None,
     ) -> None:
         self._store = store
         self._manager = manager
@@ -72,6 +85,7 @@ class ConnectorDeletionRecovery:
         self._timeline_buffer = timeline_buffer
         self._runtime_state_cache = runtime_state_cache
         self._broker = broker
+        self._remote_desktop = remote_desktop
 
     async def run_once(self) -> None:
         # Only explicit pending deletions (2), never legacy revoked credentials (1).
@@ -85,6 +99,7 @@ class ConnectorDeletionRecovery:
                     self._terminals,
                     self._timeline_buffer,
                     self._runtime_state_cache,
+                    remote_desktop=self._remote_desktop,
                 )
             except KeyError:
                 continue  # A different worker completed the same deletion.

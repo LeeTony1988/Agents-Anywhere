@@ -1,0 +1,9 @@
+{
+  "remoteDesktopEnabled": false,
+  "remoteDesktopAllowControl": false,
+  "remoteDesktopRequireConsent": true,
+  "remoteDesktopAllowUnattended": false,
+  "remoteDesktopClipboard": false,
+  "remoteDesktopMaxFps": 30,
+  "remoteDesktopMaxBitrateKbps": 4000
+}

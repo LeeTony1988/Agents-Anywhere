@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "t": "clipboard_transfer",
+  "a": "chunk",
+  "transferId": "ct_abcdef123456",
+  "index": 0,
+  "dataBase64": "aGVsbG8="
+}

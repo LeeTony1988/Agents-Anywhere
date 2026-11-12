@@ -264,6 +264,12 @@ class BackendRpcClient:
             if self._http_client is not None:
                 await self._http_client.aclose()
                 self._http_client = None
+            # The screen host must not outlive this Connector process. Shutdown
+            # is bounded inside the supervisor (release-all, stop, terminate).
+            try:
+                await self._dispatcher.remote_desktop_rpc.aclose()
+            except Exception:  # noqa: BLE001 - never block Connector shutdown
+                logger.warning("remote desktop host shutdown failed")
 
     async def run_once(self) -> None:
         # A proxy changed in the system settings applies from this connection on.

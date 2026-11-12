@@ -1,0 +1,19 @@
+{
+  "type": "remote_desktop.stats.updated",
+  "payload": {
+    "sessionId": "rds_01J9Z6K8Y3M2Q4T7V5W8X1B0C",
+    "stats": {
+      "fps": 29.7,
+      "bitrateKbps": 2610,
+      "rttMs": 38,
+      "jitterMs": 4.2,
+      "packetLossPct": 0.3,
+      "codec": "vp8",
+      "width": 1920,
+      "height": 1080,
+      "encoder": "libwebrtc-sw",
+      "subscribers": 2
+    },
+    "at": "2026-11-13T00:34:58Z"
+  }
+}

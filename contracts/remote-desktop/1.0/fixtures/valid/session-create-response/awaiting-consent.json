@@ -1,0 +1,44 @@
+{
+  "session": {
+    "id": "rds_01JABCDEFGH",
+    "connectorId": "conn_x",
+    "mode": "control",
+    "displayId": "0",
+    "state": "awaiting_consent",
+    "endReason": null,
+    "controller": "viewer:pt_abcdefghijklmnopqrstuvwx",
+    "controllerLeaseExpiresAt": "2026-11-13T00:10:00Z",
+    "linkedSessionId": null,
+    "media": null,
+    "quality": {
+      "maxFps": 30,
+      "maxBitrateKbps": 4000,
+      "maxWidth": 1920,
+      "preferCodec": "vp8"
+    },
+    "stats": {
+      "fps": 29.4,
+      "bitrateKbps": 2600,
+      "rttMs": 41,
+      "jitterMs": 3,
+      "packetLossPct": 0.3,
+      "codec": "vp8",
+      "width": 1920,
+      "height": 1080,
+      "encoder": "libwebrtc-sw",
+      "subscribers": 2
+    },
+    "error": null,
+    "viewerCount": 2,
+    "createdAt": "2026-11-13T00:00:00Z",
+    "startedAt": "2026-11-13T00:00:00Z",
+    "endedAt": null
+  },
+  "participantId": "pt_abcdefghijklmnopqrstuvwx",
+  "media": null,
+  "ws": {
+    "url": "/api/v2/remote-desktop/sessions/rds_01JABCDEFGH/ws",
+    "ticket": "wst_example",
+    "expiresAt": "2026-11-13T00:10:00Z"
+  }
+}

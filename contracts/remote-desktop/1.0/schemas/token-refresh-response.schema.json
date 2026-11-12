@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:token-refresh-response",
+  "title": "RemoteDesktopTokenRefreshResponse",
+  "$ref": "urn:agents-anywhere:remote-desktop:1.0:media-grant",
+  "x-direction": "egress",
+  "x-contract-version": "1.0"
+}

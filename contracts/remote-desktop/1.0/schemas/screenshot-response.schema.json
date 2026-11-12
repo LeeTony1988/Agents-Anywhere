@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:screenshot-response",
+  "title": "RemoteDesktopScreenshotResponse",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "width",
+    "height",
+    "capturedAt",
+    "dataBase64"
+  ],
+  "properties": {
+    "width": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "dataBase64": {
+      "type": "string"
+    }
+  },
+  "x-direction": "egress",
+  "x-contract-version": "1.0"
+}

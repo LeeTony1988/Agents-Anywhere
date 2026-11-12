@@ -1,0 +1,667 @@
+//! Host state machine: session lifecycle, control lease, quality, input dispatch.
+
+use std::collections::BTreeSet;
+
+use log::{info, warn};
+
+use crate::capture::{CaptureError, CaptureSource, Frame};
+use crate::config::{Quality, QualityPatch, DEFAULT_MAX_WIDTH};
+use crate::input::{InputEvent, InputSink};
+use crate::protocol::{
+    event, response_err, response_ok, EventKind, HostControlMessage, Method, ERR_CAPTURE_FAILED,
+    ERR_INVALID_PARAMS, ERR_NOT_CONTROLLER,
+};
+use crate::publish::{MediaGrant, Publisher, Stats};
+
+/// Host lifecycle states.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostState {
+    Idle,
+    Starting,
+    Running,
+    Stopping,
+    Crashed,
+}
+
+impl HostState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            HostState::Idle => "idle",
+            HostState::Starting => "starting",
+            HostState::Running => "running",
+            HostState::Stopping => "stopping",
+            HostState::Crashed => "crashed",
+        }
+    }
+}
+
+/// How the output frames/events are delivered (stdio in production, a buffer in tests).
+pub trait EventSink: Send {
+    fn emit(&mut self, msg: HostControlMessage);
+}
+
+/// In-memory sink for tests.
+#[derive(Debug, Default)]
+pub struct VecEventSink {
+    pub frames: Vec<HostControlMessage>,
+}
+
+impl EventSink for VecEventSink {
+    fn emit(&mut self, msg: HostControlMessage) {
+        self.frames.push(msg);
+    }
+}
+
+/// The remote-desktop host.
+pub struct Host {
+    pub state: HostState,
+    pub session_id: Option<String>,
+    pub display_id: String,
+    pub mode: String,
+    pub quality: Quality,
+    /// Full controller identity (`viewer:pt_...`); input is rejected when the
+    /// caller does not match (decisions D4).
+    pub controller_identity: Option<String>,
+    /// Bumped on every `host.controlGrant`; host rejects input from a stale epoch.
+    pub control_epoch: u64,
+    pressed_keys: BTreeSet<String>,
+    pressed_buttons: BTreeSet<String>,
+    pub consent_required: bool,
+    capture: Box<dyn CaptureSource>,
+    publisher: Box<dyn Publisher>,
+    sink: Box<dyn InputSink>,
+    events: Box<dyn EventSink>,
+}
+
+impl Host {
+    /// Production constructor: platform capture, stub/livekit publisher, platform input sink.
+    pub fn new(
+        config: &crate::config::HostConfig,
+        capture: Box<dyn CaptureSource>,
+        publisher: Box<dyn Publisher>,
+        sink: Box<dyn InputSink>,
+        events: Box<dyn EventSink>,
+    ) -> Self {
+        Self {
+            state: HostState::Idle,
+            session_id: None,
+            display_id: config.display.clone(),
+            mode: "view".to_string(),
+            quality: config.quality,
+            controller_identity: None,
+            control_epoch: 0,
+            pressed_keys: BTreeSet::new(),
+            pressed_buttons: BTreeSet::new(),
+            consent_required: false,
+            capture,
+            publisher,
+            sink,
+            events,
+        }
+    }
+
+    /// Dispatch one request to the matching method. Always returns a Response frame.
+    pub fn handle_request(
+        &mut self,
+        id: u64,
+        method: Method,
+        params: &serde_json::Value,
+    ) -> HostControlMessage {
+        match method {
+            Method::HostInfo => self.handle_info(id),
+            Method::HostStart => self.handle_start(id, params),
+            Method::HostStop => self.handle_stop(id),
+            Method::HostUpdateQuality => self.handle_update_quality(id, params),
+            Method::HostControlGrant => self.handle_control_grant(id, params),
+            Method::HostRequestKeyframe => self.handle_request_keyframe(id),
+            Method::HostReleaseAll => self.handle_release_all(id),
+            Method::HostScreenshot => self.handle_screenshot(id, params),
+            Method::HostInput => self.handle_input(id, params),
+            Method::HostPing => response_ok(id, serde_json::json!({"pong": true})),
+        }
+    }
+
+    fn handle_info(&mut self, id: u64) -> HostControlMessage {
+        let displays: Vec<serde_json::Value> = self
+            .capture
+            .displays()
+            .iter()
+            .map(|d| d.to_json())
+            .collect();
+        let (platform, supported, permissions) = platform_facts();
+        let result = serde_json::json!({
+            "platform": platform,
+            "arch": arch_str(),
+            "hostVersion": env!("CARGO_PKG_VERSION"),
+            "pid": std::process::id(),
+            "capabilities": {
+                "supported": supported,
+                "codecs": ["vp8"],
+                "input": {
+                    "pointer": supported,
+                    "keyboard": supported,
+                    "touch": false,
+                    "clipboard": false
+                },
+                "permissions": permissions,
+                "displays": displays,
+                "quality": self.quality
+            },
+            "displays": displays,
+            "input": {
+                "pointer": supported,
+                "keyboard": supported,
+                "touch": false,
+                "clipboard": false
+            },
+            "permissions": permissions
+        });
+        response_ok(id, result)
+    }
+
+    fn handle_start(&mut self, id: u64, params: &serde_json::Value) -> HostControlMessage {
+        let session_id = match params.get("sessionId").and_then(serde_json::Value::as_str) {
+            Some(s) if !s.is_empty() => s.to_string(),
+            _ => {
+                return response_err(id, ERR_INVALID_PARAMS, "params.sessionId is required");
+            }
+        };
+        if let Some(display_id) = params.get("displayId").and_then(serde_json::Value::as_str) {
+            self.display_id = display_id.to_string();
+        }
+        if let Some(mode) = params.get("mode").and_then(serde_json::Value::as_str) {
+            self.mode = mode.to_string();
+        }
+        if let Some(quality) = params.get("quality") {
+            match serde_json::from_value::<QualityPatch>(quality.clone()) {
+                Ok(patch) => self.quality = patch.apply(self.quality),
+                Err(_) => return response_err(id, ERR_INVALID_PARAMS, "invalid quality params"),
+            }
+        }
+        if let Some(consent) = params
+            .get("requireConsent")
+            .and_then(serde_json::Value::as_bool)
+        {
+            self.consent_required = consent;
+        }
+        // deadlineMs is accepted and recorded (bounded 1..=300000 per schema) but not
+        // enforced in the skeleton.
+        if let Some(deadline) = params.get("deadlineMs").and_then(serde_json::Value::as_u64) {
+            info!("host.start deadlineMs={deadline} recorded (not enforced)");
+        }
+
+        // Idempotent: same session already running -> accepted, no-op.
+        if self.state == HostState::Running && self.session_id.as_deref() == Some(&session_id) {
+            return response_ok(id, serde_json::json!({"accepted": true}));
+        }
+
+        // Panic-release: anything stuck from a previous session/crash is let go first.
+        self.release_all_internal();
+
+        self.state = HostState::Starting;
+        self.emit_state(&session_id, "starting");
+
+        if let Err(e) = self.capture.start(&self.display_id) {
+            self.state = HostState::Crashed;
+            self.emit_error(&session_id, ERR_CAPTURE_FAILED, &e.to_string());
+            return response_err(id, ERR_CAPTURE_FAILED, e.to_string());
+        }
+
+        let media: Option<MediaGrant> = params
+            .get("media")
+            .and_then(|m| serde_json::from_value(m.clone()).ok());
+        match media {
+            Some(grant) => {
+                self.publisher.start(&session_id, &grant);
+            }
+            None => {
+                // Media grant is optional in the skeleton (e.g. consent-first flows ship
+                // the grant later); publishing starts without a room connection.
+                info!("host.start without media grant; publishing deferred");
+            }
+        }
+
+        self.session_id = Some(session_id.clone());
+        self.state = HostState::Running;
+        self.emit_state(&session_id, "running");
+        response_ok(id, serde_json::json!({"accepted": true}))
+    }
+
+    fn handle_stop(&mut self, id: u64) -> HostControlMessage {
+        // Idempotent: stopping when not running is a no-op that still reports stopped.
+        let session_id = self.session_id.clone();
+        if self.state == HostState::Running || self.state == HostState::Starting {
+            self.state = HostState::Stopping;
+            if let Some(sid) = &session_id {
+                self.emit_state(sid, "stopping");
+            }
+            self.publisher.stop();
+            self.capture.stop();
+        }
+        self.release_all_internal();
+        self.state = HostState::Idle;
+        self.session_id = None;
+        if let Some(sid) = &session_id {
+            self.emit_state(sid, "stopped");
+        }
+        response_ok(id, serde_json::json!({"stopped": true}))
+    }
+
+    fn handle_update_quality(&mut self, id: u64, params: &serde_json::Value) -> HostControlMessage {
+        let Ok(patch) = serde_json::from_value::<QualityPatch>(params.clone()) else {
+            return response_err(id, ERR_INVALID_PARAMS, "invalid quality params");
+        };
+        // Per contract: out-of-range values are clamped, not rejected.
+        let q = patch.apply(self.quality);
+        let changed = q != self.quality;
+        self.quality = q;
+        if !changed {
+            warn!("host.updateQuality produced no change (values already clamped/equal)");
+        }
+        response_ok(id, serde_json::json!({"applied": true}))
+    }
+
+    fn handle_control_grant(&mut self, id: u64, params: &serde_json::Value) -> HostControlMessage {
+        let Some(identity) = params.get("identity").and_then(serde_json::Value::as_str) else {
+            return response_err(id, ERR_INVALID_PARAMS, "params.identity is required");
+        };
+        self.controller_identity = Some(identity.to_string());
+        self.control_epoch += 1;
+        info!(
+            "control granted to {identity} (epoch {})",
+            self.control_epoch
+        );
+        response_ok(id, serde_json::json!({"applied": true}))
+    }
+
+    fn handle_request_keyframe(&mut self, id: u64) -> HostControlMessage {
+        let requested = self.publisher.request_keyframe();
+        response_ok(id, serde_json::json!({"requested": requested}))
+    }
+
+    fn handle_release_all(&mut self, id: u64) -> HostControlMessage {
+        let (keys, buttons) = self.release_all_internal();
+        response_ok(
+            id,
+            serde_json::json!({"releasedKeys": keys, "releasedButtons": buttons}),
+        )
+    }
+
+    fn handle_screenshot(&mut self, id: u64, params: &serde_json::Value) -> HostControlMessage {
+        let max_width = params
+            .get("maxWidth")
+            .and_then(serde_json::Value::as_u64)
+            .map(|v| v as u32)
+            .unwrap_or(DEFAULT_MAX_WIDTH);
+
+        // Display selection: explicit param wins, else the running session's display,
+        // else the first enumerated display.
+        let display_id = params
+            .get("displayId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .or_else(|| self.session_id.as_ref().map(|_| self.display_id.clone()))
+            .or_else(|| self.capture.displays().first().map(|d| d.id.clone()));
+        let Some(display_id) = display_id else {
+            return response_err(id, ERR_CAPTURE_FAILED, "no displays available");
+        };
+
+        let result = self.capture_screenshot(&display_id, max_width);
+        match result {
+            Ok(value) => response_ok(id, value),
+            Err(CaptureError::Unsupported) => response_err(
+                id,
+                ERR_CAPTURE_FAILED,
+                "capture unsupported on this platform",
+            ),
+            Err(e) => response_err(id, ERR_CAPTURE_FAILED, e.to_string()),
+        }
+    }
+
+    fn handle_input(&mut self, id: u64, params: &serde_json::Value) -> HostControlMessage {
+        // Identity check: when the caller supplies an identity it must match the
+        // granted controller (decisions D4). Missing identity is rejected while a
+        // controller lease is active.
+        if let Some(identity) = params.get("identity").and_then(serde_json::Value::as_str) {
+            if self.controller_identity.as_deref() != Some(identity) {
+                return response_err(id, ERR_NOT_CONTROLLER, "identity is not the controller");
+            }
+        } else if self.controller_identity.is_some() {
+            return response_err(id, ERR_NOT_CONTROLLER, "identity is required");
+        }
+
+        let Some(events) = params.get("events").and_then(serde_json::Value::as_array) else {
+            return response_err(id, ERR_INVALID_PARAMS, "params.events must be an array");
+        };
+
+        let mut applied_seq: u64 = 0;
+        for raw in events {
+            let event = match InputEvent::from_json(raw) {
+                Ok(ev) => ev,
+                Err(e) => return response_err(id, ERR_INVALID_PARAMS, e.to_string()),
+            };
+            self.track_pressed(&event);
+            if let Err(e) = self.sink.apply(&event) {
+                return response_err(id, ERR_INVALID_PARAMS, e.to_string());
+            }
+            if let Some(seq) = event_seq(&event) {
+                applied_seq = applied_seq.max(seq as u64);
+            }
+        }
+        response_ok(id, serde_json::json!({"appliedSeq": applied_seq}))
+    }
+
+    /// Full shutdown used on EOF / signals: release everything, stop media, idle out.
+    pub fn shutdown(&mut self) {
+        let session_id = self.session_id.clone();
+        if self.state == HostState::Running || self.state == HostState::Starting {
+            self.state = HostState::Stopping;
+        }
+        self.publisher.stop();
+        self.capture.stop();
+        self.release_all_internal();
+        self.state = HostState::Idle;
+        if let Some(sid) = session_id {
+            self.emit_state(&sid, "stopped");
+        }
+    }
+
+    /// `host.releaseAll` + internal paths (stop/EOF/crash): releases every pressed
+    /// key and mouse button through the sink and clears the host-side pressed sets.
+    fn release_all_internal(&mut self) -> (Vec<String>, Vec<String>) {
+        let (sink_keys, sink_buttons) = self.sink.release_all();
+        let mut keys: Vec<String> = self.pressed_keys.iter().cloned().collect();
+        let mut buttons: Vec<String> = self.pressed_buttons.iter().cloned().collect();
+        keys.extend(sink_keys);
+        buttons.extend(sink_buttons);
+        keys.sort();
+        keys.dedup();
+        buttons.sort();
+        buttons.dedup();
+        self.pressed_keys.clear();
+        self.pressed_buttons.clear();
+        (keys, buttons)
+    }
+
+    /// Keep the host-side pressed sets in sync with the event stream so release_all
+    /// reports the right thing even if the sink drops unmapped keys.
+    fn track_pressed(&mut self, event: &InputEvent) {
+        use crate::input::{KeyAction, PointerAction};
+        match event {
+            InputEvent::Pointer {
+                action,
+                button: Some(b),
+                ..
+            } => {
+                let name = match b {
+                    crate::input::PointerButton::Left => "left",
+                    crate::input::PointerButton::Right => "right",
+                    crate::input::PointerButton::Middle => "middle",
+                };
+                match action {
+                    PointerAction::Down => {
+                        self.pressed_buttons.insert(name.to_string());
+                    }
+                    PointerAction::Up => {
+                        self.pressed_buttons.remove(name);
+                    }
+                    PointerAction::Move => {}
+                }
+            }
+            InputEvent::Key { action, code, .. } => match action {
+                KeyAction::Down => {
+                    self.pressed_keys.insert(code.clone());
+                }
+                KeyAction::Up => {
+                    self.pressed_keys.remove(code);
+                }
+            },
+            _ => {}
+        }
+    }
+
+    fn capture_screenshot(
+        &mut self,
+        display_id: &str,
+        max_width: u32,
+    ) -> Result<serde_json::Value, CaptureError> {
+        // Single-frame capture path: try a fresh probe capture of the requested
+        // display; fall back to draining one frame from the active capture source
+        // when a session is already running.
+        let frame = match one_shot_capture(self.capture.as_mut(), display_id) {
+            Ok(f) => f,
+            Err(e) if self.state == HostState::Running => {
+                info!("probe capture failed ({e}); draining frame from active capture");
+                self.capture.next_frame()?
+            }
+            Err(e) => return Err(e),
+        };
+        let png = encode_png(&frame, max_width)?;
+        Ok(serde_json::json!({
+            "dataBase64": png.0,
+            "width": png.1,
+            "height": png.2,
+            "capturedAt": frame.captured_at,
+            "format": "png"
+        }))
+    }
+
+    fn emit_state(&mut self, session_id: &str, state: &str) {
+        let msg = event(
+            EventKind::State,
+            serde_json::json!({"sessionId": session_id, "state": state}),
+        );
+        self.events.emit(msg);
+    }
+
+    fn emit_error(&mut self, session_id: &str, code: &str, message: &str) {
+        let msg = event(
+            EventKind::Error,
+            serde_json::json!({
+                "sessionId": session_id,
+                "code": code,
+                "message": message,
+                "retryable": false
+            }),
+        );
+        self.events.emit(msg);
+    }
+}
+
+fn event_seq(event: &InputEvent) -> Option<u32> {
+    match event {
+        InputEvent::Pointer { seq, .. }
+        | InputEvent::Wheel { seq, .. }
+        | InputEvent::Key { seq, .. }
+        | InputEvent::Text { seq, .. }
+        | InputEvent::Clipboard { seq, .. } => Some(*seq),
+        InputEvent::Ping { .. } => None,
+    }
+}
+
+#[cfg(windows)]
+fn platform_facts() -> (&'static str, bool, serde_json::Value) {
+    (
+        "windows",
+        true,
+        serde_json::json!({
+            "screenRecording": "granted",
+            "accessibility": "granted",
+            "inputMonitoring": "granted"
+        }),
+    )
+}
+
+#[cfg(not(windows))]
+fn platform_facts() -> (&'static str, bool, serde_json::Value) {
+    (
+        if cfg!(target_os = "macos") {
+            "macos"
+        } else {
+            "linux"
+        },
+        false,
+        serde_json::json!({
+            "screenRecording": "unsupported",
+            "accessibility": "unsupported",
+            "inputMonitoring": "unsupported"
+        }),
+    )
+}
+
+#[cfg(target_arch = "x86_64")]
+fn arch_str() -> &'static str {
+    "x86_64"
+}
+
+#[cfg(target_arch = "aarch64")]
+fn arch_str() -> &'static str {
+    "aarch64"
+}
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+fn arch_str() -> &'static str {
+    "unknown"
+}
+
+/// Standalone single-frame capture of `display_id`.
+fn one_shot_capture(
+    capture: &mut dyn CaptureSource,
+    display_id: &str,
+) -> Result<Frame, CaptureError> {
+    capture.start(display_id)?;
+    let frame = capture.next_frame();
+    capture.stop();
+    frame
+}
+
+const B64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// RFC 4648 standard base64 (no external crate).
+fn base64_encode(data: &[u8]) -> String {
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(B64_ALPHABET[(n >> 18) as usize & 63] as char);
+        out.push(B64_ALPHABET[(n >> 12) as usize & 63] as char);
+        if chunk.len() > 1 {
+            out.push(B64_ALPHABET[(n >> 6) as usize & 63] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(B64_ALPHABET[n as usize & 63] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+/// Minimal PNG encoder (8-bit grayscale, no compression beyond stored blocks) so a
+/// screenshot can be returned without external crates. Downscales by integer step to
+/// fit `max_width`.
+fn encode_png(frame: &Frame, max_width: u32) -> Result<(String, u32, u32), CaptureError> {
+    let step = (frame.width.max(1) / max_width.max(1)).max(1);
+    let out_w = frame.width.div_ceil(step);
+    let out_h = frame.height.div_ceil(step);
+    let stride = frame.stride as usize;
+    let y_plane = &frame.i420[..stride * frame.height as usize];
+    let mut gray = Vec::with_capacity((out_w * out_h) as usize);
+    for row in 0..out_h {
+        for col in 0..out_w {
+            let src = (row * step) as usize * stride + (col * step) as usize;
+            gray.push(*y_plane.get(src).copied().as_ref().unwrap_or(&0));
+        }
+    }
+    let png = build_gray_png(out_w, out_h, &gray);
+    Ok((base64_encode(&png), out_w, out_h))
+}
+
+/// Build a valid PNG (signature + IHDR + IDAT with uncompressed DEFLATE blocks +
+/// IEND) for an 8-bit grayscale image.
+fn build_gray_png(width: u32, height: u32, gray: &[u8]) -> Vec<u8> {
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc: u32 = 0xFFFF_FFFF;
+        for &b in bytes {
+            crc ^= b as u32;
+            for _ in 0..8 {
+                let mask = 0u32.wrapping_sub(crc & 1);
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
+        }
+        !crc
+    }
+
+    /// Adler-32 checksum (RFC 1950), seeded with 1.
+    fn adler32(bytes: &[u8]) -> u32 {
+        const MOD: u32 = 65_521;
+        let mut a: u32 = 1;
+        let mut b: u32 = 0;
+        for &byte in bytes {
+            a = (a + byte as u32) % MOD;
+            b = (b + a) % MOD;
+        }
+        (b << 16) | a
+    }
+    fn chunk(out: &mut Vec<u8>, name: &[u8; 4], data: &[u8]) {
+        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        out.extend_from_slice(name);
+        out.extend_from_slice(data);
+        let mut crc_input = Vec::with_capacity(4 + data.len());
+        crc_input.extend_from_slice(name);
+        crc_input.extend_from_slice(data);
+        out.extend_from_slice(&crc32(&crc_input).to_be_bytes());
+    }
+
+    let mut raw = Vec::with_capacity(((width + 1) * height) as usize);
+    for row in 0..height {
+        raw.push(0); // filter: none
+        let start = (row * width) as usize;
+        raw.extend_from_slice(&gray[start..start + width as usize]);
+    }
+    let mut zlib = Vec::with_capacity(raw.len() + 64);
+    zlib.push(0x78);
+    zlib.push(0x01);
+    for block in raw.chunks(65_535) {
+        let last = block.len() < 65_535;
+        zlib.push(if last { 1 } else { 0 });
+        zlib.extend_from_slice(&(block.len() as u16).to_le_bytes());
+        zlib.extend_from_slice(&(!(block.len() as u16)).to_le_bytes());
+        zlib.extend_from_slice(block);
+    }
+    let checksum = adler32(&raw);
+    zlib.extend_from_slice(&checksum.to_be_bytes());
+
+    let mut png = Vec::new();
+    png.extend_from_slice(&[137, 80, 78, 71, 13, 10, 26, 10]);
+    let mut ihdr = Vec::with_capacity(13);
+    ihdr.extend_from_slice(&width.to_be_bytes());
+    ihdr.extend_from_slice(&height.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 0, 0, 0, 0]); // 8-bit, grayscale, defaults
+    chunk(&mut png, b"IHDR", &ihdr);
+    chunk(&mut png, b"IDAT", &zlib);
+    chunk(&mut png, b"IEND", &[]);
+    png
+}
+
+/// Publisher stats exposed for the `stats` event.
+pub fn stats_event(session_id: &str, stats: &Stats) -> HostControlMessage {
+    event(
+        EventKind::Stats,
+        serde_json::json!({
+            "sessionId": session_id,
+            "fps": stats.fps,
+            "bitrateKbps": stats.bitrate_kbps,
+            "rttMs": stats.rtt_ms,
+            "packetLossPct": stats.packet_loss_pct,
+            "codec": stats.codec,
+            "width": stats.width,
+            "height": stats.height,
+            "encoder": stats.encoder
+        }),
+    )
+}

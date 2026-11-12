@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:host-control-message",
+  "title": "RemoteDesktopHostControlMessage",
+  "description": "One NDJSON frame on the bidirectional stdio control channel between the Connector and aa-screen-host. Encoding is UTF-8; every line is exactly one JSON object; stdout carries protocol frames only (logs go to stderr); a single frame must not exceed 4 MiB (4194304 bytes).",
+  "type": "object",
+  "required": ["v", "type"],
+  "oneOf": [
+    {"$ref": "#/$defs/Hello"},
+    {"$ref": "#/$defs/Request"},
+    {"$ref": "#/$defs/Response"},
+    {"$ref": "#/$defs/Event"},
+    {"$ref": "#/$defs/Error"},
+    {"$ref": "#/$defs/Shutdown"}
+  ],
+  "$defs": {
+    "Hello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "type",
+        "protocolVersion",
+        "hostVersion",
+        "platform",
+        "arch",
+        "pid",
+        "capabilities"
+      ],
+      "properties": {
+        "v": {"const": 1},
+        "type": {"const": "hello"},
+        "protocolVersion": {"const": 1},
+        "hostVersion": {"type": "string", "minLength": 1},
+        "platform": {"enum": ["windows", "macos", "linux", "unknown"]},
+        "arch": {"enum": ["x86_64", "aarch64", "unknown"]},
+        "pid": {"type": "integer", "minimum": 1},
+        "capabilities": {"type": "object", "additionalProperties": true}
+      }
+    },
+    "Request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "type", "id", "method", "params"],
+      "properties": {
+        "v": {"const": 1},
+        "type": {"const": "request"},
+        "id": {"type": "integer", "minimum": 1},
+        "method": {
+          "enum": [
+            "host.info",
+            "host.start",
+            "host.stop",
+            "host.updateQuality",
+            "host.controlGrant",
+            "host.requestKeyframe",
+            "host.releaseAll",
+            "host.screenshot",
+            "host.input",
+            "host.ping"
+          ]
+        },
+        "params": {"type": "object", "additionalProperties": true},
+        "deadlineMs": {"type": "integer", "minimum": 1, "maximum": 300000}
+      }
+    },
+    "Response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "type", "id", "ok"],
+      "properties": {
+        "v": {"const": 1},
+        "type": {"const": "response"},
+        "id": {"type": "integer", "minimum": 1},
+        "ok": {"type": "boolean"},
+        "result": {"type": "object", "additionalProperties": true},
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": {"type": "string"},
+            "message": {"type": "string"}
+          }
+        }
+      }
+    },
+    "Event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "type", "event", "params"],
+      "properties": {
+        "v": {"const": 1},
+        "type": {"const": "event"},
+        "event": {"enum": ["state", "stats", "displays", "consent", "clipboard", "error"]},
+        "params": {"type": "object", "additionalProperties": true}
+      }
+    },
+    "Error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "type", "error"],
+      "properties": {
+        "v": {"const": 1},
+        "type": {"const": "error"},
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": {"type": "string"},
+            "message": {"type": "string"},
+            "retryable": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "Shutdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "type"],
+      "properties": {
+        "v": {"const": 1},
+        "type": {"const": "shutdown"},
+        "reason": {"type": "string"}
+      }
+    }
+  },
+  "x-direction": "bidirectional",
+  "x-contract-version": "1.0",
+  "x-transport": {
+    "framing": "ndjson",
+    "encoding": "utf-8",
+    "maxFrameBytes": 4194304,
+    "stdout": "protocol-only",
+    "stderr": "logs-only"
+  }
+}

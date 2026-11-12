@@ -53,6 +53,7 @@ import { useWorkspace } from "@/components/workspace-context"
 import { useAuth } from "@/components/auth/auth-context"
 import { dashboardApi } from "@/features/dashboard/api"
 import { DeviceSettingsSection } from "@/features/dashboard/device-settings"
+import { RemoteDesktopEntryButton } from "@/components/remote-desktop/remote-desktop-entry"
 import { PairDeviceDialog } from "@/components/pair-device-dialog"
 import type { ConnectorRevokeResponse } from "@/features/dashboard/types"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -758,6 +759,7 @@ export function DevicePage() {
             </span>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <RemoteDesktopEntryButton connectorId={connector.id} />
             <Button
               variant="outline"
               size="sm"

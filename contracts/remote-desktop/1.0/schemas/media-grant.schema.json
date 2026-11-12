@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:media-grant",
+  "title": "RemoteDesktopMediaGrant",
+  "description": "Short-lived LiveKit join grant. The token is never persisted server-side.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "provider",
+    "url",
+    "room",
+    "identity",
+    "token",
+    "tokenExpiresAt",
+    "canPublishData"
+  ],
+  "properties": {
+    "provider": {
+      "enum": [
+        "livekit"
+      ]
+    },
+    "url": {
+      "type": "string",
+      "pattern": "^wss?://"
+    },
+    "room": {
+      "type": "string",
+      "pattern": "^rd_[A-Za-z0-9_]+$"
+    },
+    "identity": {
+      "type": "string",
+      "pattern": "^(host:[A-Za-z0-9_-]{4,64}|viewer:pt_[A-Za-z0-9_-]{16,64})$"
+    },
+    "token": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tokenExpiresAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "canPublishData": {
+      "type": "boolean"
+    },
+    "iceServers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "urls"
+        ],
+        "properties": {
+          "urls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "username": {
+            "type": "string"
+          },
+          "credential": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "x-direction": "egress",
+  "x-contract-version": "1.0"
+}

@@ -1,0 +1,94 @@
+{
+  "connectorId": "conn_x",
+  "capabilities": [
+    {
+      "capabilityId": "connector.remote_desktop.control",
+      "scope": "connector",
+      "connectorId": "conn_x",
+      "supported": true,
+      "available": true,
+      "allowed": true,
+      "unavailableReason": null,
+      "revision": 12,
+      "metadata": {
+        "maxFps": 60,
+        "codecs": [
+          "vp8"
+        ],
+        "clipboard": true
+      }
+    },
+    {
+      "capabilityId": "connector.remote_desktop.view",
+      "scope": "connector",
+      "connectorId": "conn_x",
+      "supported": true,
+      "available": true,
+      "allowed": true,
+      "unavailableReason": null,
+      "revision": 12,
+      "metadata": {
+        "maxFps": 60,
+        "codecs": [
+          "vp8"
+        ],
+        "clipboard": true
+      }
+    },
+    {
+      "capabilityId": "connector.remote_desktop.clipboard",
+      "scope": "connector",
+      "connectorId": "conn_x",
+      "supported": true,
+      "available": true,
+      "allowed": true,
+      "unavailableReason": null,
+      "revision": 12,
+      "metadata": {
+        "maxFps": 60,
+        "codecs": [
+          "vp8"
+        ],
+        "clipboard": true
+      }
+    }
+  ],
+  "host": {
+    "supported": true,
+    "available": true,
+    "unavailableReason": null,
+    "platform": "windows",
+    "arch": "x86_64",
+    "hostVersion": "1.0.0",
+    "displays": [
+      {
+        "id": "0",
+        "name": "DISPLAY1",
+        "width": 2560,
+        "height": 1440,
+        "scale": 1.5,
+        "primary": true,
+        "refreshHz": 60,
+        "x": 0,
+        "y": 0
+      }
+    ],
+    "codecs": [
+      "vp8"
+    ],
+    "maxFps": 60,
+    "input": {
+      "pointer": true,
+      "keyboard": true,
+      "touch": false,
+      "clipboard": true
+    },
+    "permissions": {
+      "screenRecording": "granted",
+      "accessibility": "granted",
+      "inputMonitoring": "granted"
+    },
+    "activeSessions": 1
+  },
+  "serverTime": "2026-11-13T00:00:00Z"
+}

@@ -61,8 +61,9 @@ export type PanelMode = "docked" | "floating" | "closed"
  *   mobile-connections           →  #/mobile-connections
  *   home + project prefill       →  #/new-session/proj-1
  *   device/:id                   →  #/device/conn-3
+ *   device/:id/remote            →  #/device/conn-3/remote
  */
-export type AppPage = "home" | "session" | "settings" | "admin" | "mobile-connections" | "tokens-anywhere" | "device"
+export type AppPage = "home" | "session" | "settings" | "admin" | "mobile-connections" | "tokens-anywhere" | "device" | "device-remote"
 
 export type WorkspaceSessionView = DemoSessionView & {
   projectId?: string | null
@@ -95,6 +96,7 @@ type ParsedRoute =
   | { page: "mobile-connections" }
   | { page: "tokens-anywhere" }
   | { page: "device"; connectorId: string }
+  | { page: "device-remote"; connectorId: string }
 
 function parseHash(hash: string): ParsedRoute {
   const path = hash.replace(/^#\/?/, "")
@@ -124,6 +126,7 @@ function parseHash(hash: string): ParsedRoute {
     case "device": {
       const connectorId = parts[1]
       if (!connectorId) return { page: "home" }
+      if (parts[2] === "remote") return { page: "device-remote", connectorId }
       return { page: "device", connectorId }
     }
     default:
@@ -140,6 +143,7 @@ function buildHash(route: ParsedRoute): string {
     case "tokens-anywhere": return "#/tokens-anywhere"
     case "mobile-connections": return "#/mobile-connections"
     case "device":    return `#/device/${route.connectorId}`
+    case "device-remote": return `#/device/${route.connectorId}/remote`
   }
 }
 
@@ -950,6 +954,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       else if (page === "admin") pushRoute({ page: "admin", section: parseAdminSection(sub) })
       else if (page === "tokens-anywhere") pushRoute({ page: "tokens-anywhere" })
       else if (page === "mobile-connections") pushRoute({ page: "mobile-connections" })
+      else if (page === "device-remote") pushRoute({ page: "device-remote", connectorId: sub ?? "" })
     },
     [pushRoute],
   )
@@ -1435,7 +1440,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       !activeSession &&
       (routeSessionId.startsWith("session_") || sessionAliases[routeSessionId]),
   )
-  const activeConnectorId = route.page === "device" ? route.connectorId : null
+  const activeConnectorId = route.page === "device" || route.page === "device-remote" ? route.connectorId : null
   const newSessionProjectId = route.page === "home" ? route.projectId ?? null : null
   const newSessionProject = newSessionProjectId
     ? projects.find((project) => project.id === newSessionProjectId) ?? null

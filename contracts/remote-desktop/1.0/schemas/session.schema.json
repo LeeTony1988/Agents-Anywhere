@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:session",
+  "title": "RemoteDesktopSession",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "id",
+    "connectorId",
+    "mode",
+    "state",
+    "quality",
+    "viewerCount",
+    "createdAt"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^rds_[A-Za-z0-9]{8,64}$"
+    },
+    "connectorId": {
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "view",
+        "control"
+      ]
+    },
+    "displayId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "state": {
+      "enum": [
+        "starting",
+        "awaiting_consent",
+        "live",
+        "degraded",
+        "interrupted",
+        "ended"
+      ]
+    },
+    "endReason": {
+      "anyOf": [
+        {
+          "enum": [
+            "client_ended",
+            "host_ended",
+            "consent_denied",
+            "consent_timeout",
+            "idle_timeout",
+            "duration_limit",
+            "connector_deleted",
+            "connector_offline",
+            "media_error",
+            "policy_revoked"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "controller": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^(host:[A-Za-z0-9_-]{4,64}|viewer:pt_[A-Za-z0-9_-]{16,64})$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "controllerLeaseExpiresAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "linkedSessionId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "media": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "provider",
+            "room",
+            "url"
+          ],
+          "properties": {
+            "provider": {
+              "enum": [
+                "livekit"
+              ]
+            },
+            "room": {
+              "type": "string",
+              "pattern": "^rd_[A-Za-z0-9_]+$"
+            },
+            "url": {
+              "type": "string",
+              "pattern": "^wss?://"
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "quality": {
+      "$ref": "#/$defs/Quality"
+    },
+    "stats": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Stats"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ErrorInfo"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "viewerCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 16
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "startedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "endedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "Quality": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "maxFps": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 60
+        },
+        "maxBitrateKbps": {
+          "type": "integer",
+          "minimum": 500,
+          "maximum": 20000
+        },
+        "maxWidth": {
+          "type": "integer",
+          "minimum": 320,
+          "maximum": 3840
+        },
+        "preferCodec": {
+          "enum": [
+            "vp8"
+          ]
+        }
+      }
+    },
+    "Stats": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "fps",
+        "bitrateKbps",
+        "rttMs",
+        "jitterMs",
+        "packetLossPct",
+        "codec",
+        "width",
+        "height",
+        "encoder",
+        "subscribers"
+      ],
+      "properties": {
+        "fps": {
+          "type": "number",
+          "minimum": 0
+        },
+        "bitrateKbps": {
+          "type": "number",
+          "minimum": 0
+        },
+        "rttMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "jitterMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "packetLossPct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "codec": {
+          "enum": [
+            "vp8"
+          ]
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "encoder": {
+          "type": "string"
+        },
+        "subscribers": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ErrorInfo": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  },
+  "x-direction": "egress",
+  "x-contract-version": "1.0"
+}

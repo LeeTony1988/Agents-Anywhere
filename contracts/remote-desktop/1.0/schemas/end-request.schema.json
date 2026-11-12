@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:end-request",
+  "title": "RemoteDesktopEndRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "reason"
+  ],
+  "properties": {
+    "reason": {
+      "enum": [
+        "client_ended"
+      ]
+    }
+  },
+  "x-direction": "ingress",
+  "x-contract-version": "1.0"
+}

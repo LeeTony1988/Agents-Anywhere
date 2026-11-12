@@ -17,6 +17,7 @@ import { SidebarSwitch } from "@/components/sidebar-switch"
 import { AdminPage } from "@/components/admin/admin-page"
 import { AdminSidebar } from "@/components/admin/admin-sidebar"
 import { DevicePage } from "@/components/pages/device-page"
+import { RemoteDesktopPage } from "@/components/remote-desktop/remote-desktop-view"
 import { TokensAnywherePage } from "@/components/pages/tokens-anywhere-page"
 import { MobileConnectionsPage } from "@/components/pages/mobile-connections-page"
 import { WorkspaceProvider, useWorkspace } from "@/components/workspace-context"
@@ -322,6 +323,7 @@ function WorkspaceMain() {
     page === "mobile-connections" ? <MobileConnectionsPage /> :
     page === "session" ? <SessionView /> :
     page === "device" ? <DevicePage /> :
+    page === "device-remote" ? <RemoteDesktopPage /> :
     <TaskComposer />
   return (
     <>

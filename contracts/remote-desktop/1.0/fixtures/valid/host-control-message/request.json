@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "type": "request",
+  "id": 7,
+  "method": "host.start",
+  "params": {
+    "sessionId": "rds_01J9Z6K8Y3M2Q4T7V5W8X1B0C",
+    "displayId": "0",
+    "mode": "control",
+    "quality": {
+      "maxFps": 30,
+      "maxBitrateKbps": 4000,
+      "maxWidth": 1920
+    }
+  },
+  "deadlineMs": 15000
+}

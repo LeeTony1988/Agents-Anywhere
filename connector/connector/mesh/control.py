@@ -36,6 +36,13 @@ class DeviceSettings(BaseModel):
     """User-chosen device settings the server handed over (docs/api/device-settings.md)."""
 
     confirmQuitOnShutdown: bool = False
+    remoteDesktopEnabled: bool = False
+    remoteDesktopAllowControl: bool = False
+    remoteDesktopRequireConsent: bool = True
+    remoteDesktopAllowUnattended: bool = False
+    remoteDesktopClipboard: bool = False
+    remoteDesktopMaxFps: int = 30
+    remoteDesktopMaxBitrateKbps: int = 4000
 
 
 class ConnectorState(BaseModel):

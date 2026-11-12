@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "t": "clipboard_transfer",
+  "a": "begin",
+  "transferId": "ct_abcdef123456",
+  "mime": "text/plain",
+  "size": 100,
+  "totalChunks": 1
+}

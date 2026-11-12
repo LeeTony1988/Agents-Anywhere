@@ -73,10 +73,13 @@ class ConnectorController:
         return BackendRpcClient(config, device_settings_sink=self._apply_device_settings)
 
     async def _apply_device_settings(self, settings: dict[str, Any]) -> None:
-        if settings == self._device_settings:
+        from connector.core.device_settings import normalize_device_settings
+
+        normalized = normalize_device_settings(settings)
+        if normalized == self._device_settings:
             return
-        self._device_settings = dict(settings)
-        logger.info("device settings updated settings={}", settings)
+        self._device_settings = normalized
+        logger.info("device settings updated settings={}", normalized)
         await self._emit_state()
 
     def get_state(self, _params: Any = None) -> dict[str, Any]:

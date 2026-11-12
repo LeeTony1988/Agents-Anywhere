@@ -1,0 +1,24 @@
+{
+  "connectorId": "conn_x",
+  "displayId": "0",
+  "mode": "control",
+  "quality": {
+    "maxFps": 30,
+    "maxBitrateKbps": 4000,
+    "maxWidth": 1920,
+    "preferCodec": "vp8"
+  },
+  "client": {
+    "platform": "web",
+    "appVersion": "2.3.0",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 2
+    }
+  },
+  "link": {
+    "sessionId": "sess_abc"
+  },
+  "autoStart": true
+}

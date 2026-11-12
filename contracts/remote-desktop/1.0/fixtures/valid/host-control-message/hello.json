@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "type": "hello",
+  "protocolVersion": 1,
+  "hostVersion": "0.1.0",
+  "platform": "windows",
+  "arch": "x86_64",
+  "pid": 4242,
+  "capabilities": {
+    "capture": true,
+    "encoders": ["libwebrtc-sw"],
+    "clipboard": true
+  }
+}

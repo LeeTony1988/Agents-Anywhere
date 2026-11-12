@@ -1,0 +1,36 @@
+# Self-hosted LiveKit for Agents Anywhere remote desktop.
+#
+# Copy this file next to docker-compose.postgres.yml and set the two secrets
+# through the compose environment or your secret manager. The Server must use
+# the same API key/secret and point AGENT_SERVER_LIVEKIT_URL at this instance.
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50100
+  # In Docker bridge/NAT deployments set this to false and publish rtc.ips,
+  # or run the container with host networking. Leaving it true behind NAT makes
+  # LiveKit advertise an unreachable address.
+  use_external_ip: false
+redis:
+  # Service name in docker/docker-compose.postgres.yml (not "redis").
+  address: redis-next:6379
+keys:
+  # Must match AGENT_SERVER_LIVEKIT_API_KEY / AGENT_SERVER_LIVEKIT_API_SECRET.
+  aa_remote_desktop: ${LIVEKIT_API_SECRET}
+webhook:
+  api_key: aa_remote_desktop
+  urls:
+    # Inside the compose network the Server is reachable as "server".
+    - http://server:8000/api/v2/internal/livekit/webhook
+turn:
+  enabled: true
+  domain: ${LIVEKIT_TURN_DOMAIN}
+  tls_port: 5349
+  udp_port: 3478
+  # Mount the certificate/key into the container; both are required for TURN/TLS.
+  cert_file: /etc/livekit/turn.crt
+  key_file: /etc/livekit/turn.key
+prometheus_port: 6789
+logging:
+  level: info

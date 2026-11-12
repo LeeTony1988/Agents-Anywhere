@@ -15,6 +15,8 @@ The web UI may still be served from `/`, locale routes such as `/en`, and static
 | `/admin/*` | `/api/v2/admin/*` |
 | `/agents/*` | `/api/v2/agents/*` |
 | `/connectors/*` | `/api/v2/connectors/*` |
+| `/remote-desktop/*` | `/api/v2/remote-desktop/*` |
+| `/internal/livekit/webhook` | `/api/v2/internal/livekit/webhook` |
 | `/pairing/*` | `/api/v2/pairing/*` |
 | `/sessions/*` | `/api/v2/sessions/*` |
 | `/connector/*` | `/api/v2/connector/*` |

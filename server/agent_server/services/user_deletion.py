@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from agent_server.services.connector_deletion import delete_connector_data
@@ -27,6 +28,8 @@ async def delete_user_account(
     terminals: TerminalBroker,
     timeline_buffer: TimelineWriteBuffer,
     runtime_state_cache: SessionRuntimeStateCache,
+    *,
+    remote_desktop: Callable[[], object | None] | None = None,
 ) -> None:
     """Remove every device (and its sessions/projects) first, then the user.
 
@@ -52,6 +55,7 @@ async def delete_user_account(
                 terminals,
                 timeline_buffer,
                 runtime_state_cache,
+                remote_desktop=remote_desktop,
             )
         except KeyError:
             continue  # Deleted concurrently by the owner or the recovery worker.

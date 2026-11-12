@@ -1,0 +1,5 @@
+{
+  "url": "/api/v2/remote-desktop/sessions/rds_01JABCDEFGH/ws",
+  "ticket": "wst_example",
+  "expiresAt": "2026-11-13T00:10:00Z"
+}

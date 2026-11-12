@@ -843,6 +843,59 @@ channel_rotation_intents = Table("channel_rotation_intents", metadata,
 channel_device_gates = Table("channel_device_gates", metadata,
     Column("connector_id", Text, ForeignKey("connectors.id", ondelete="CASCADE"), primary_key=True),
     Column("connection_id", Text, nullable=False), Column("expires_at", Text, nullable=False))
+
+
+# Remote desktop session audit records (v2_56). Times are RFC 3339 UTC strings
+# and structured columns are JSON strings, matching the rest of the schema.
+# connector_id and user_id deliberately carry no foreign keys: these rows are
+# an audit trail that must survive device or user deletion, so an
+# ON DELETE CASCADE must never erase them (see usage_events for precedent).
+remote_desktop_sessions = Table(
+    "remote_desktop_sessions",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("connector_id", Text, nullable=False),
+    Column("connector_name", Text),
+    Column("user_id", Text, nullable=False),
+    Column("created_by_participant_id", Text),
+    Column("mode", Text, nullable=False),
+    Column("display_id", Text),
+    Column("state", Text, nullable=False),
+    Column("end_reason", Text),
+    Column("controller_identity", Text),
+    Column("controller_lease_expires_at", Text),
+    Column("linked_session_id", Text),
+    Column("media_provider", Text, nullable=False),
+    Column("media_room", Text),
+    Column("quality_json", Text, nullable=False, server_default="{}"),
+    Column("stats_summary_json", Text),
+    Column("error_json", Text),
+    Column("participants_json", Text, nullable=False, server_default="[]"),
+    Column("consent_deadline_at", Text),
+    Column("interrupted_at", Text),
+    Column("last_input_at", Text),
+    Column("last_viewer_left_at", Text),
+    Column("started_at", Text),
+    Column("ended_at", Text),
+    Column("worker_id", Text),
+    Column("created_at", Text, nullable=False),
+    Column("updated_at", Text, nullable=False),
+    Index(
+        "uq_rd_sessions_connector_active",
+        "connector_id",
+        unique=True,
+        postgresql_where=text("ended_at IS NULL"),
+    ),
+    Index("idx_rd_sessions_connector_created", "connector_id", text("created_at DESC")),
+    Index("idx_rd_sessions_user_created", "user_id", text("created_at DESC")),
+    Index(
+        "idx_rd_sessions_state_active",
+        "state",
+        postgresql_where=text("ended_at IS NULL"),
+    ),
+    Index("idx_rd_sessions_ended", "ended_at"),
+)
+
 from agent_server.infra.db.goal_schema import define_goal_tables
 
 session_goals, session_goal_state, goal_operations, goal_event_outbox = (

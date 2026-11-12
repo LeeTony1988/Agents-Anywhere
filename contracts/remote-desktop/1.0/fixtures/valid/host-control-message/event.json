@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "type": "event",
+  "event": "stats",
+  "params": {
+    "sessionId": "rds_01J9Z6K8Y3M2Q4T7V5W8X1B0C",
+    "fps": 29.4,
+    "bitrateKbps": 2600,
+    "rttMs": 41,
+    "packetLossPct": 0.3,
+    "codec": "vp8",
+    "width": 1920,
+    "height": 1080,
+    "encoder": "libwebrtc-sw"
+  }
+}

@@ -33,6 +33,9 @@ from agent_server.core.timeline import (
 from agent_server.infra.repositories.projects import MissingWorkspaceError
 from agent_server.services.connector_realtime import ConnectorRealtimeService
 from agent_server.services.ingest_effects import IngestEffect
+from agent_server.services.remote_desktop_notifications import (
+    RemoteDesktopNotificationHandler,
+)
 from agent_server.services.repository_ports import ConnectorNotificationRepository
 from agent_server.services.timeline_write_buffer import TimelineWriteBuffer
 from agent_server.services.usage_events import (
@@ -85,8 +88,10 @@ class ConnectorNotificationService:
         timeline_write_buffer: TimelineWriteBuffer | None = None,
         *,
         usage_recorder: UsageRecorder | NullUsageRecorder | None = None,
+        remote_desktop: RemoteDesktopNotificationHandler | None = None,
     ) -> None:
         self._realtime = realtime
+        self._remote_desktop = remote_desktop
         usage = usage_recorder or NullUsageRecorder()
         self._handlers = (
             ConnectorProtocolNotificationHandler(store),
@@ -111,6 +116,19 @@ class ConnectorNotificationService:
         method: str,
         params: dict[str, Any],
     ) -> IngestEffect:
+        if method.startswith("remoteDesktop."):
+            if self._remote_desktop is None:
+                raise NotificationValidationError(
+                    "unsupported_notification",
+                    f"unsupported remote desktop notification: {method}",
+                )
+            effect = await self._remote_desktop.apply(connector_id, method, params)
+            if effect is None:
+                raise NotificationValidationError(
+                    "unsupported_notification",
+                    f"unsupported remote desktop notification: {method}",
+                )
+            return effect
         if method != "session.turnEnded":
             params = _without_runtime_turn_ids(params)
         if method == "approval.requested":

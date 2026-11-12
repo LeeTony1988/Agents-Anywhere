@@ -18,6 +18,14 @@
 - Server 执行 `v2_54` 数据库迁移：为每个会话记下最新一条记录的摘要并从已有数据回填，耗时随会话数增长，请在停止 Server 和 worker 的维护窗口里运行；客户端无须升级，细节见[升级指南](docs/upgrading.md)。（[#595](https://github.com/anywhere-labs/Agents-Anywhere/pull/595)）
 - 设备设置需要 Server 执行 `v2_55` 数据库迁移（只给设备表加一列，不改写已有数据）；关机行为要等 Connector 和 Desktop 也升级后才按设置生效，旧版 Desktop 关机时仍会弹窗确认。（[#596](https://github.com/anywhere-labs/Agents-Anywhere/pull/596)）
 - Desktop 不再信任私钥已泄露的 eMudhra 中间证书，连接 Server、登录和下载更新时不会被用这些证书伪造的服务器冒充；Desktop 从此版本起需要 macOS 13 及以上，macOS 12 用户请停留在 2.1.x。（[#605](https://github.com/anywhere-labs/Agents-Anywhere/pull/605)）
+- Server 执行 `v2_56` 数据库迁移：新增远程桌面会话表，不改写已有数据；远程桌面默认关闭，不配置 LiveKit 时所有客户端隐藏入口，现有功能不受影响。使用远程桌面需要同时升级 Server、Connector 和客户端，并自行部署 LiveKit（开放 WebRTC/TURN 端口）。（[4cf45632](https://github.com/anywhere-labs/Agents-Anywhere/commit/4cf45632)）
+
+### 远程桌面
+
+- Web 和 Desktop 可以在设备页查看该设备屏幕；获得授权后可用鼠标、键盘和手势控制，会话状态、码率、延迟和丢包在页面内可见。（[4cf45632](https://github.com/anywhere-labs/Agents-Anywhere/commit/4cf45632)）
+- 远程桌面默认关闭，开启观看、控制和无人值守都需要在设备本机确认；共享期间设备上常驻「正在共享屏幕」提示，可随时一键结束。（[4cf45632](https://github.com/anywhere-labs/Agents-Anywhere/commit/4cf45632)）
+- 同一台设备同时只保留一个远程桌面会话，多个客户端可以一起观看，控制权按租约在客户端之间转移；断线后 90 秒内可以恢复，超时自动结束并保留审计记录。（[4cf45632](https://github.com/anywhere-labs/Agents-Anywhere/commit/4cf45632)）
+- Connector 会拉起并监管独立的屏幕主机进程，Connector 退出或崩溃时不会留下继续采屏的孤儿进程。（[4cf45632](https://github.com/anywhere-labs/Agents-Anywhere/commit/4cf45632)）
 
 ### 会话创建与消息交付
 

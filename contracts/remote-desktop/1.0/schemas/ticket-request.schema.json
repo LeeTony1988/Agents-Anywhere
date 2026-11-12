@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:ticket-request",
+  "title": "RemoteDesktopTicketRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "participantId"
+  ],
+  "properties": {
+    "participantId": {
+      "type": "string",
+      "pattern": "^pt_[A-Za-z0-9_-]{16,64}$"
+    }
+  },
+  "x-direction": "ingress",
+  "x-contract-version": "1.0"
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agents-anywhere:remote-desktop:1.0:host-info",
+  "title": "RemoteDesktopHostInfo",
+  "description": "GET /api/v2/connectors/{connectorId}/remote-desktop. Capabilities are Server policy; host facts are the Connector's report.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "connectorId",
+    "capabilities",
+    "host",
+    "serverTime"
+  ],
+  "properties": {
+    "connectorId": {
+      "type": "string"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:agents-anywhere:remote-desktop:1.0:capability"
+      },
+      "minItems": 1,
+      "maxItems": 3
+    },
+    "host": {
+      "anyOf": [
+        {
+          "$ref": "urn:agents-anywhere:remote-desktop:1.0:host-facts"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "serverTime": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "x-direction": "egress",
+  "x-contract-version": "1.0"
+}

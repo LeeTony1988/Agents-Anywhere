@@ -74,6 +74,9 @@ from agent_server.services.device_runtimes import (
 from agent_server.services.effective_capabilities import (
     ConnectorCapabilityRefresh,
 )
+from agent_server.services.remote_desktop_notifications import (
+    RemoteDesktopNotificationHandler,
+)
 from agent_server.services.runtime_ingress import (
     notification_runtime_id,
     runtime_notification_is_allowed,
@@ -618,6 +621,9 @@ async def connector_ws(
                 db, ConnectorNotificationService(
                     db, realtime, timeline_write_buffer,
                     usage_recorder=websocket.app.state.usage_recorder,
+                    remote_desktop=RemoteDesktopNotificationHandler(
+                        websocket.app.state.remote_desktop_service
+                    ),
                 ),
                 timeline_broker, runtime_service, manager,
                 websocket.app.state.session_runtime_state_cache,

@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "t": "clipboard_transfer",
+  "a": "begin",
+  "transferId": "ct_abcdef123456",
+  "mime": "text/plain",
+  "size": 65536,
+  "totalChunks": 8,
+  "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+}
