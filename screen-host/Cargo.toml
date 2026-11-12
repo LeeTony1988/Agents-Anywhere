@@ -24,14 +24,15 @@ windows = { version = "0.61", features = [
     "Win32_System_Threading",
     "Win32_System_SystemServices",
 ] }
+windows-capture = { version = "2.0.1", optional = true }
 
 [dependencies.livekit]
 version = "=0.10.1"
 optional = true
 
 [features]
-# Windows.Graphics.Capture (WGC) 真采集。当前为占位实现：枚举显示器为真实实现，
-# 帧采集在启用本 feature 时仍返回 rd_capture_failed（TODO RD-P2-10）。
-wgc = []
+# Windows.Graphics.Capture (WGC) 真采集。启用后使用 windows-capture 抓取真实
+# BGRA 帧并在 host 内转 I420；默认关闭以保持非 Windows CI 轻量。
+wgc = ["dep:windows-capture"]
 # LiveKit 发布。livekit = "=0.10.1"，需要联网构建 libwebrtc；默认关闭。
 livekit = ["dep:livekit"]

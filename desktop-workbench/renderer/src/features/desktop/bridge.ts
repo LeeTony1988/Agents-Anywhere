@@ -45,6 +45,15 @@ export type DesktopConnectorState = {
   notificationsEnabled: boolean
   /** The device setting the server last handed to this Desktop; change it through the server. */
   confirmQuitOnShutdown?: boolean
+  /** Local screen-sharing indicator reported by the managed Connector. */
+  remoteDesktop?: {
+    active: boolean
+    sessionId?: string | null
+    mode?: string | null
+    state?: string | null
+    controllerIdentity?: string | null
+    startedAt?: string | null
+  } | null
   configPath?: string
   runtimePath?: string
   dataPath?: string

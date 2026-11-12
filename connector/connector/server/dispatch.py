@@ -21,6 +21,7 @@ from connector.server.remote_desktop_rpc import (
 from connector.server.runtime_rpc import RuntimeRpcHandler
 
 DeviceSettingsSink = Callable[[dict[str, Any]], Awaitable[None]]
+RemoteDesktopStateSink = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class ConnectorRequestSession:
@@ -81,6 +82,7 @@ class ConnectorRequestDispatcher:
         start_terminal_relay: StartTerminalRelay,
         schedule_background: BackgroundScheduler,
         device_settings_sink: DeviceSettingsSink | None = None,
+        remote_desktop_state_sink: RemoteDesktopStateSink | None = None,
         remote_desktop_rpc: RemoteDesktopRpcHandler | None = None,
     ) -> None:
         self._agent_runtime_supervisor = agent_runtime_supervisor
@@ -96,6 +98,7 @@ class ConnectorRequestDispatcher:
         notify = getattr(local_ops, "notify", None)
         self.remote_desktop_rpc = remote_desktop_rpc or RemoteDesktopRpcHandler(
             notify=notify if callable(notify) else None,
+            state_sink=remote_desktop_state_sink,
         )
         self._default_session = self.new_session()
         self.runtime_rpc = self._default_session.runtime_rpc

@@ -2875,6 +2875,10 @@
       "invalid_event": "输入格式不被接受。",
       "unsupported": "设备不支持这个操作。",
       "policy": "设备策略拒绝了这个操作。"
-    }
+    },
+    "sharingBanner": "正在共享屏幕",
+    "sharingBannerControl": "此设备正被远程控制",
+    "sharingBannerView": "此设备正被远程观看",
+    "openRemote": "查看远程桌面"
   }
 }

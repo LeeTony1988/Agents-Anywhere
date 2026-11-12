@@ -1,6 +1,8 @@
 //! Capture source abstraction and platform selection.
 
 pub mod fake;
+#[cfg(all(windows, feature = "wgc"))]
+pub mod wgc;
 #[cfg(windows)]
 pub mod windows;
 

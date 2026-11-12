@@ -1111,6 +1111,20 @@ export class ConnectorSupervisor {
     if (deviceSettings && typeof deviceSettings.confirmQuitOnShutdown === "boolean") {
       this.options.onDeviceSettings?.({ confirmQuitOnShutdown: deviceSettings.confirmQuitOnShutdown });
     }
+    const remoteDesktop = next.remoteDesktop as Record<string, unknown> | null | undefined;
+    if (remoteDesktop && typeof remoteDesktop === "object") {
+      this.state.remoteDesktop = {
+        active: remoteDesktop.active === true,
+        sessionId: typeof remoteDesktop.sessionId === "string" ? remoteDesktop.sessionId : null,
+        mode: typeof remoteDesktop.mode === "string" ? remoteDesktop.mode : null,
+        state: typeof remoteDesktop.state === "string" ? remoteDesktop.state : null,
+        controllerIdentity:
+          typeof remoteDesktop.controllerIdentity === "string" ? remoteDesktop.controllerIdentity : null,
+        startedAt: typeof remoteDesktop.startedAt === "string" ? remoteDesktop.startedAt : null,
+      };
+    } else {
+      this.state.remoteDesktop = null;
+    }
     if (this.state.authFailed) this.clearRestartTimer();
     if (this.state.running) this.crashCount = 0;
     this.refreshBindingState();

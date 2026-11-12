@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -133,6 +134,10 @@ _HOST_ERROR_CODE_MAP = {
 }
 
 
+def _utc_now() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
 class RemoteDesktopRpcError(RuntimeError):
     """A stable Connector -> Server internal error (`rd_*`)."""
 
@@ -194,6 +199,7 @@ class RemoteDesktopRpcHandler:
         *,
         policy: RemoteDesktopPolicy | None = None,
         notify: Notify | None = None,
+        state_sink: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         consent_prompt: ConsentPrompt | None = None,
         settings: Mapping[str, Any] | None = None,
         config: ConnectorConfig | None = None,
@@ -212,6 +218,15 @@ class RemoteDesktopRpcHandler:
             self._settings["remoteDesktopEnabled"] = True
         self._policy = policy or RemoteDesktopPolicy.from_device_settings(self._settings)
         self._notify_sink = notify
+        self._state_sink = state_sink
+        self._local_state: dict[str, Any] = {
+            "active": False,
+            "sessionId": None,
+            "mode": None,
+            "state": None,
+            "controllerIdentity": None,
+            "startedAt": None,
+        }
         self._consent_prompt = consent_prompt
         self._stats_coalesce_seconds = max(
             0.0,
@@ -375,6 +390,14 @@ class RemoteDesktopRpcHandler:
                 "remote desktop consent requires an interactive device",
             )
         if needs_consent:
+            await self._publish_local_state(
+                active=True,
+                sessionId=session_id,
+                mode=mode,
+                state="awaiting_consent",
+                controllerIdentity=controller_identity,
+                startedAt=None,
+            )
             if session_id in self._pending_consent:
                 return {"accepted": True, "state": "awaiting_consent"}
             task = asyncio.create_task(
@@ -401,6 +424,14 @@ class RemoteDesktopRpcHandler:
             # background so the Server's 10 s RPC timeout is not hit.
             return {"accepted": True, "state": "awaiting_consent"}
         try:
+            await self._publish_local_state(
+                active=True,
+                sessionId=session_id,
+                mode=mode,
+                state="starting",
+                controllerIdentity=controller_identity,
+                startedAt=None,
+            )
             result = await self.supervisor.start(
                 session_id,
                 display_id=display_id,
@@ -414,7 +445,9 @@ class RemoteDesktopRpcHandler:
                 await self.supervisor.control_grant(
                     session_id, controller_identity
                 )
+            await self._publish_local_state(state="running", startedAt=_utc_now())
         except ScreenHostError as exc:
+            await self._publish_local_state(active=False, state="error")
             await self._stop_quietly(session_id)
             raise rpc_error_from_host_error(exc, display_id=display_id) from exc
         return {
@@ -439,6 +472,7 @@ class RemoteDesktopRpcHandler:
             timeout_seconds=consent_timeout_seconds,
         )
         if not granted:
+            await self._publish_local_state(active=False, state="consent_denied")
             await self._notify(
                 "remoteDesktop.consent",
                 {
@@ -463,6 +497,7 @@ class RemoteDesktopRpcHandler:
                     session_id, controller_identity
                 )
         except ScreenHostError as exc:
+            await self._publish_local_state(active=False, state="error")
             await self._stop_quietly(session_id)
             await self._notify(
                 "remoteDesktop.error",
@@ -474,6 +509,7 @@ class RemoteDesktopRpcHandler:
                 },
             )
             return
+        await self._publish_local_state(state="running", startedAt=_utc_now())
         await self._notify(
             "remoteDesktop.consent",
             {
@@ -498,6 +534,10 @@ class RemoteDesktopRpcHandler:
                 await self.supervisor.stop(session_id, reason=reason)
         except ScreenHostError as exc:
             raise rpc_error_from_host_error(exc) from exc
+        await self._publish_local_state(
+            active=False, state="stopped", sessionId=None, mode=None,
+            controllerIdentity=None, startedAt=None,
+        )
         return {"stopped": True}
 
     async def update_quality(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -649,6 +689,12 @@ class RemoteDesktopRpcHandler:
             self._queue_stats(data)
             return
         if event == "state":
+            host_state = data.get("state")
+            if isinstance(host_state, str):
+                await self._publish_local_state(
+                    active=host_state in {"starting", "running"},
+                    state=host_state,
+                )
             await self._notify("remoteDesktop.state", data)
             return
         if event == "displays":
@@ -674,6 +720,7 @@ class RemoteDesktopRpcHandler:
             await self._notify("remoteDesktop.clipboard", data)
             return
         if event == "error":
+            await self._publish_local_state(active=False, state="error")
             payload = dict(data)
             if not isinstance(payload.get("code"), str) or not payload["code"]:
                 payload["code"] = "rd_host_error"
@@ -703,6 +750,18 @@ class RemoteDesktopRpcHandler:
         if params is not None:
             await self._notify("remoteDesktop.stats", params)
 
+    async def _publish_local_state(self, **fields: Any) -> None:
+        self._local_state.update(fields)
+        sink = self._state_sink
+        if sink is None:
+            return
+        try:
+            await sink(dict(self._local_state))
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - the local UI must not break RPC
+            logger.exception("remote desktop local state sink failed")
+
     async def _notify(self, method: str, params: dict[str, Any]) -> None:
         sink = self._notify_sink
         if sink is None:
@@ -731,6 +790,7 @@ class RemoteDesktopRpcHandler:
         shutdown = getattr(self.supervisor, "shutdown", None)
         if callable(shutdown):
             await shutdown()
+        await self._publish_local_state(active=False, state="stopped")
 
     async def shutdown(self) -> None:
         await self.aclose()

@@ -45,6 +45,17 @@ class DeviceSettings(BaseModel):
     remoteDesktopMaxBitrateKbps: int = 4000
 
 
+class RemoteDesktopState(BaseModel):
+    """Whether this device is currently being shared and how."""
+
+    active: bool = False
+    sessionId: str | None = None
+    mode: str | None = None
+    state: str | None = None
+    controllerIdentity: str | None = None
+    startedAt: str | None = None
+
+
 class ConnectorState(BaseModel):
     status: Literal["running", "expired credential", "error", "stopped"]
     running: bool
@@ -56,6 +67,8 @@ class ConnectorState(BaseModel):
     hasConfig: bool
     # None until the server has handed settings to this process.
     deviceSettings: DeviceSettings | None = None
+    # None until this device has started or stopped a remote desktop session.
+    remoteDesktop: RemoteDesktopState | None = None
 
 
 class ConnectorPaths(BaseModel):

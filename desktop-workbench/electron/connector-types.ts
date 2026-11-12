@@ -110,6 +110,16 @@ export type ConnectorState = {
   silentLaunch: boolean;
   notificationsEnabled: boolean;
   confirmQuitOnShutdown: boolean;
+  remoteDesktop?: DesktopRemoteDesktopState | null;
+};
+
+export type DesktopRemoteDesktopState = {
+  active: boolean;
+  sessionId?: string | null;
+  mode?: string | null;
+  state?: string | null;
+  controllerIdentity?: string | null;
+  startedAt?: string | null;
 };
 
 export type DesktopSettings = {

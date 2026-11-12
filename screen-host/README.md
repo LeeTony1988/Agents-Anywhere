@@ -18,7 +18,7 @@ stdio 拉起，双向使用 HostControl NDJSON 协议（`contracts/remote-deskto
 | Windows 输入注入（`src/input/windows.rs`） | ✅ 真实 | `SendInput`：鼠标移动（绝对坐标）、左/右/中键、滚轮、按键（W3C code→VK 映射表）、Unicode 文本（`KEYEVENTF_UNICODE`）、pressed 集合 + release_all |
 | 截图（`host.screenshot`） | ✅ 真实（自研） | 单帧 I420 → 灰度 PNG（内置极简 PNG 编码器，无外部依赖），默认 maxWidth 1280 |
 | 假采集/假输入（`fake.rs`） | ✅ 真实（测试用） | 2 帧 640x360 I420 渐变；事件记录 sink |
-| WGC 帧采集 | ⚠️ feature gate `wgc` | 占位：枚举真实，帧采集 TODO（RD-P2-10），`next_frame` 先吐 300 帧空白帧便于联调 publish 管线 |
+| WGC 帧采集 | ✅ feature gate `wgc`（真实现，未在本机交互桌面验证） | `windows-capture 2.0.1`：优先 Windows.Graphics.Capture，失败时回退 DXGI Desktop Duplication；BGRA→I420、按 `maxWidth` 缩放、光标包含。默认 feature 关闭时仍用空白 stub 便于协议联调 |
 | LiveKit 发布 | ⚠️ feature gate `livekit` | `src/publish/livekit.rs` 骨架：`NativeVideoSource` + `TrackSource::Screenshare` + VP8 + `simulcast=false` + `contentHint=text` 的接线注释与 TODO（RD-P2-11）；默认走 `StubPublisher` |
 | consent 确认框 / 悬浮条（RD-P2-13） | ❌ 未做 | 仅保留 `consentRequired` 字段 |
 | 打包 / CI（RD-P2-14/15） | ❌ 未做 | 本目录外的工作 |
@@ -53,8 +53,8 @@ cargo run -- --once        # 只处理一行请求后优雅退出
 
 ## Windows 运行要求
 
-- Windows 10 1809+（WGC 可用版本）；当前骨架未接 WGC，任意 Win10+ 可跑协议层。
-- 交互式桌面会话（`SendInput` 注入到会话 1；服务/Session 0 下输入注入无效）。
+- Windows 10 1809+（WGC 可用版本）；`--features wgc` 时优先 WGC，创建 capture item 失败会回退 DXGI Desktop Duplication。
+- 交互式桌面会话（`SendInput` 注入到用户会话；服务/Session 0 下 WGC/DXGI 与输入注入都会失败）。本次 CI 环境无法验证真实采集，需在真机运行 `cargo test --features wgc -- --ignored`。
 - 屏幕采集权限：UWP 应用对非激活窗口的捕获受 Windows 设置约束；本机确认流（RD-P2-13）
   落地后由确认框承担授权。
 - `ctrlc` crate 未接入；清理路径 = stdin EOF / `shutdown` 帧 / 进程退出。

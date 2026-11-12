@@ -21,6 +21,7 @@ import { AdminPage } from "@/components/admin/admin-page"
 import { AdminSidebar } from "@/components/admin/admin-sidebar"
 import { DevicePage } from "@/components/pages/device-page"
 import { RemoteDesktopPage } from "@/components/remote-desktop/remote-desktop-view"
+import { DesktopSharingBanner } from "@/components/remote-desktop/desktop-sharing-banner"
 import { TokensAnywherePage } from "@/components/pages/tokens-anywhere-page"
 import { MobileConnectionsPage } from "@/components/pages/mobile-connections-page"
 import { WorkspaceProvider, useWorkspace } from "@/components/workspace-context"
@@ -360,6 +361,7 @@ function WorkspaceMain() {
     <TaskComposer />
   return (
     <>
+      <DesktopSharingBanner />
       {content}
       <AlertDialog open={firstDevicePromptOpen} onOpenChange={(open: boolean) => {
         if (!open) closeFirstDevicePrompt()

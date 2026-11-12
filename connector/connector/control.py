@@ -68,9 +68,21 @@ class ConnectorController:
         self._auth_failed = False
         # Settings the server handed over in this process; None until then.
         self._device_settings: dict[str, Any] | None = None
+        # Local sharing indicator state; None until the host reports one.
+        self._remote_desktop_state: dict[str, Any] | None = None
 
     def _default_client(self, config: ConnectorConfig) -> BackendRpcClient:
-        return BackendRpcClient(config, device_settings_sink=self._apply_device_settings)
+        return BackendRpcClient(
+            config,
+            device_settings_sink=self._apply_device_settings,
+            remote_desktop_state_sink=self._apply_remote_desktop_state,
+        )
+
+    async def _apply_remote_desktop_state(self, state: dict[str, Any]) -> None:
+        if state == self._remote_desktop_state:
+            return
+        self._remote_desktop_state = dict(state)
+        await self._emit_state()
 
     async def _apply_device_settings(self, settings: dict[str, Any]) -> None:
         from connector.core.device_settings import normalize_device_settings
@@ -93,6 +105,11 @@ class ConnectorController:
             "runtimePath": str(self.runtime_path),
             "hasConfig": self.config_path.exists(),
             "deviceSettings": dict(self._device_settings) if self._device_settings is not None else None,
+            "remoteDesktop": (
+                dict(self._remote_desktop_state)
+                if self._remote_desktop_state is not None
+                else None
+            ),
         }
 
     def get_paths(self, _params: Any = None) -> dict[str, str]:

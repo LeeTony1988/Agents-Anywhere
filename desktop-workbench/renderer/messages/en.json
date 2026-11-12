@@ -2875,6 +2875,10 @@
       "invalid_event": "The input format was rejected.",
       "unsupported": "The device does not support this action.",
       "policy": "Device policy declined this action."
-    }
+    },
+    "sharingBanner": "Screen is being shared",
+    "sharingBannerControl": "This device is being controlled remotely",
+    "sharingBannerView": "This device is being viewed remotely",
+    "openRemote": "Open remote desktop"
   }
 }

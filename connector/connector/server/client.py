@@ -80,6 +80,7 @@ class BackendRpcClient:
         preferences_reader: Callable[[], dict[str, Any]] | None = None,
         sync_state_store: SyncStateStore | None = None,
         device_settings_sink: DeviceSettingsSink | None = None,
+        remote_desktop_state_sink: Callable[[dict[str, Any]], Any] | None = None,
     ) -> None:
         self.config = config
         self.sync_state_store = sync_state_store
@@ -141,6 +142,7 @@ class BackendRpcClient:
             start_terminal_relay=self.start_terminal_relay,
             schedule_background=self._schedule_background,
             device_settings_sink=device_settings_sink,
+            remote_desktop_state_sink=remote_desktop_state_sink,
         )
         self._runtime_sync = RuntimeSyncRunner(
             config=config,
@@ -608,3 +610,4 @@ def runtime_switch_directory(config: ConnectorConfig) -> Path:
         / "runtime-switch"
         / safe_file_stem(config.connector_id or "default")
     )
+

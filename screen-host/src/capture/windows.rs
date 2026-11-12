@@ -18,6 +18,8 @@ use windows::Win32::UI::WindowsAndMessaging::MONITORINFOF_PRIMARY;
 #[cfg(test)]
 use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
 
+#[cfg(feature = "wgc")]
+use super::wgc::WindowsBackend;
 use super::{CaptureError, CaptureSource, DisplayInfo, Frame};
 use crate::config::Quality;
 use crate::protocol::ERR_CAPTURE_FAILED;
@@ -85,7 +87,6 @@ fn system_scale() -> f64 {
 }
 
 /// Real display enumeration + capture backend selection.
-#[derive(Debug)]
 pub struct WindowsCaptureSource {
     quality: Quality,
     started: bool,
@@ -93,6 +94,8 @@ pub struct WindowsCaptureSource {
     remaining_stub_frames: u32,
     width: u32,
     height: u32,
+    #[cfg(feature = "wgc")]
+    wgc: Option<WindowsBackend>,
 }
 
 impl WindowsCaptureSource {
@@ -104,6 +107,8 @@ impl WindowsCaptureSource {
             remaining_stub_frames: 0,
             width: 0,
             height: 0,
+            #[cfg(feature = "wgc")]
+            wgc: None,
         }
     }
 }
@@ -126,12 +131,20 @@ impl CaptureSource for WindowsCaptureSource {
             .max(1.0) as u32;
         self.started = true;
         self.remaining_stub_frames = STUB_FRAMES;
+        #[cfg(feature = "wgc")]
+        {
+            self.wgc = Some(WindowsBackend::new(display_id, self.quality)?);
+        }
         Ok(())
     }
 
     fn next_frame(&mut self) -> Result<Frame, CaptureError> {
         if !self.started {
             return Err(CaptureError::Failed("capture not started".to_string()));
+        }
+        #[cfg(feature = "wgc")]
+        if let Some(capture) = self.wgc.as_mut() {
+            return capture.next_frame();
         }
         if self.remaining_stub_frames == 0 {
             return Err(CaptureError::Failed(format!(
@@ -156,6 +169,10 @@ impl CaptureSource for WindowsCaptureSource {
     fn stop(&mut self) {
         self.started = false;
         self.remaining_stub_frames = 0;
+        #[cfg(feature = "wgc")]
+        if let Some(capture) = self.wgc.as_mut() {
+            capture.stop();
+        }
     }
 }
 
