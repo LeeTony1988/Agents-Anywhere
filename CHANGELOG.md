@@ -25,7 +25,8 @@
 - Web 和 Desktop 可以在设备页查看该设备屏幕；获得授权后可用鼠标、键盘和手势控制，会话状态、码率、延迟和丢包在页面内可见。（[f885512c](https://github.com/anywhere-labs/Agents-Anywhere/commit/f885512c)）
 - 远程桌面默认关闭，开启观看、控制和无人值守都需要在设备本机确认；共享期间设备上常驻「正在共享屏幕」提示，可随时一键结束。（[f885512c](https://github.com/anywhere-labs/Agents-Anywhere/commit/f885512c)）
 - 同一台设备同时只保留一个远程桌面会话，多个客户端可以一起观看，控制权按租约在客户端之间转移；断线后 90 秒内可以恢复，超时自动结束并保留审计记录。（[f885512c](https://github.com/anywhere-labs/Agents-Anywhere/commit/f885512c)）
-- Connector 会拉起并监管独立的屏幕主机进程，Connector 退出或崩溃时不会留下继续采屏的孤儿进程。（[f885512c](https://github.com/anywhere-labs/Agents-Anywhere/commit/f885512c)）
+- Connector 会拉起并监管独立的屏幕主机进程，Connector 退出或崩溃时不会留下继续采屏的孤儿进程。
+- Desktop 在窗口顶部显示本机正在被远程观看或控制的提示，并可直接打开对应的远程桌面页面。（[9cdde9a5](https://github.com/anywhere-labs/Agents-Anywhere/commit/9cdde9a5)）（[f885512c](https://github.com/anywhere-labs/Agents-Anywhere/commit/f885512c)）
 
 ### 会话创建与消息交付
 
