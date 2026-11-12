@@ -635,7 +635,9 @@ LiveKit `setParameters` 调整编码目标码率。
 
 - 开始共享时在本机显示常驻悬浮条「Agents Anywhere 正在共享屏幕 · 结束共享」；
 - macOS 菜单栏录制指示、Windows 托盘图标同步显示；
-- `requireConsent=true` 时弹原生确认框（默认允许 30 s 内确认）；
+- `requireConsent=true` 时弹原生确认框（默认允许 30 s 内确认）。Windows CLI Connector 可设置
+  `AGENT_CONNECTOR_REMOTE_DESKTOP_CONSENT_PROMPT=windows` 使用原生 MessageBox 确认；Desktop
+  当前在窗口内显示共享提示条，always-on-top 悬浮窗/菜单栏项仍是后续工作；
 - 控制权变更时在悬浮条上提示「viewer:pt_… 已接管控制」。
 
 ### 9.4 传输与加密
