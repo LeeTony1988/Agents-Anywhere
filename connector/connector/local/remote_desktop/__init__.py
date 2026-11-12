@@ -22,6 +22,7 @@ from connector.local.remote_desktop.host import (
 from connector.local.remote_desktop.policy import (
     ConsentPrompt,
     RemoteDesktopPolicy,
+    WindowsMessageBoxConsentPrompt,
     request_consent,
 )
 
@@ -40,6 +41,7 @@ __all__ = [
     "ScreenHostSessionNotFound",
     "ScreenHostSupervisor",
     "ScreenHostTimeout",
+    "WindowsMessageBoxConsentPrompt",
     "current_arch",
     "current_platform",
     "default_screen_host_path",

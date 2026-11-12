@@ -30,6 +30,46 @@ class ConsentPrompt(Protocol):
     ) -> bool: ...
 
 
+class WindowsMessageBoxConsentPrompt:
+    """Native Windows Yes/No confirmation for a control session.
+
+    This is an explicit opt-in for a Connector running in an interactive
+    desktop session (``AGENT_CONNECTOR_REMOTE_DESKTOP_CONSENT_PROMPT=windows``).
+    A service/session-0 process must not use it: Win32 would either fail or
+    show the dialog on a desktop nobody can see, so the dispatcher only injects
+    it on request.
+    """
+
+    def __init__(self, *, title: str = "Agents Anywhere") -> None:
+        self._title = title
+
+    async def request_consent(
+        self, *, session_id: str, timeout_seconds: float
+    ) -> bool:
+        import sys
+
+        if sys.platform != "win32":
+            return False
+        message = (
+            "Agents Anywhere 请求远程控制这台设备。\n\n"
+            f"会话：{session_id}\n"
+            f"请在 {max(1, int(timeout_seconds))} 秒内确认。"
+        )
+        return await asyncio.to_thread(self._show, message)
+
+    def _show(self, message: str) -> bool:
+        import ctypes
+
+        mb_yesno = 0x00000004
+        mb_icon_question = 0x00000020
+        mb_set_foreground = 0x00010000
+        mb_topmost = 0x00040000
+        result = ctypes.windll.user32.MessageBoxW(
+            None, message, self._title, mb_yesno | mb_icon_question | mb_topmost | mb_set_foreground
+        )
+        return result == 6  # IDYES
+
+
 async def request_consent(
     prompt: ConsentPrompt | None,
     *,

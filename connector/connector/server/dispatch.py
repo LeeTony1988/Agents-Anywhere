@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -96,9 +97,19 @@ class ConnectorRequestDispatcher:
             schedule_background=schedule_background,
         )
         notify = getattr(local_ops, "notify", None)
+        consent_prompt = None
+        if os.name == "nt" and os.environ.get(
+            "AGENT_CONNECTOR_REMOTE_DESKTOP_CONSENT_PROMPT", ""
+        ).strip().lower() in {"windows", "1", "true", "yes"}:
+            from connector.local.remote_desktop.policy import (
+                WindowsMessageBoxConsentPrompt,
+            )
+
+            consent_prompt = WindowsMessageBoxConsentPrompt()
         self.remote_desktop_rpc = remote_desktop_rpc or RemoteDesktopRpcHandler(
             notify=notify if callable(notify) else None,
             state_sink=remote_desktop_state_sink,
+            consent_prompt=consent_prompt,
         )
         self._default_session = self.new_session()
         self.runtime_rpc = self._default_session.runtime_rpc
