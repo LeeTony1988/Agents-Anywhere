@@ -28,6 +28,7 @@ from agent_server.core.remote_desktop import (
     RemoteDesktopLimitError,
     RemoteDesktopNotFoundError,
     RemoteDesktopParticipant,
+    RemoteDesktopRateLimitedError,
     RemoteDesktopSession,
     RemoteDesktopStateError,
     RemoteDesktopStats,
@@ -803,6 +804,14 @@ class RemoteDesktopService:
     ) -> dict[str, Any]:
         session = await self._get_session(session_id, user_id)
         _find_participant(session, participant_id, user_id)
+        retry_after_ms = await self._broker.rate_limit(
+            f"token:{session_id}:{participant_id}", limit=10, window_seconds=60
+        )
+        if retry_after_ms:
+            raise RemoteDesktopRateLimitedError(
+                message="Remote desktop token refresh is rate limited.",
+                details={"retryAfterMs": retry_after_ms},
+            )
         if role not in {"viewer", "controller"}:
             raise RemoteDesktopStateError(
                 message="role must be viewer or controller", details={"role": role}
@@ -831,6 +840,14 @@ class RemoteDesktopService:
     ) -> dict[str, Any]:
         session = await self._get_session(session_id, user_id)
         _find_participant(session, participant_id, user_id)
+        retry_after_ms = await self._broker.rate_limit(
+            f"take-control:{session_id}", limit=5, window_seconds=10
+        )
+        if retry_after_ms:
+            raise RemoteDesktopRateLimitedError(
+                message="Remote desktop control takeover is rate limited.",
+                details={"retryAfterMs": retry_after_ms},
+            )
         if session.state == "awaiting_consent":
             return {"session": self._session_api(session), "pending": True}
         if session.state not in {"live", "degraded"}:

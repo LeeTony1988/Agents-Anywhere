@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | D1 | 媒体拓扑 | **一个 Connector 同时只有 1 个活跃会话、1 个 room `rd_{sessionId}`**；多个客户端是同一会话的 participants，一个 controller lease。`maxSessionsPerConnector` 改为 `maxViewersPerSession`，`activeSessions` 只取 0/1。 |
 | D2 | 平台范围 | **Windows-first**。P2 交付 Windows 采集/输入；macOS 在 P2 后半或 P3；Linux/Wayland 在 P6。 |
-| D3 | consent 与 token | `mode=control` 且 `requireConsent=true` 且 `allowUnattended=false` → 创建后 `state=awaiting_consent`、`media=null`，**不下发任何媒体 token**。设备确认后客户端调 `POST /sessions/{id}/token {role:"controller"}` 取短 TTL controller token。`take-control` 在未确认时返回 `202 {session}`。 |
+| D3 | consent 与 token | `mode=control` 且 `requireConsent=true` 且 `allowUnattended=false` → 创建后 `state=awaiting_consent`、客户端 `media=null`，**不下发任何客户端媒体 token**。Server 仍为 host 单独签发 publish token（`host:{connectorId}`，8 h）并随 `remoteDesktop.start` 交给 Connector；host 在本机确认前不 join/publish。设备确认后客户端调 `POST /sessions/{id}/token {role:"controller"}` 取短 TTL controller token。`take-control` 在未确认时返回 `202 {session}`。 |
 | D4 | 身份模型 | Server 生成不可猜测的 `participantId`（`pt_` + 32 位随机），绑定 session + user + client。LiveKit identity = `viewer:{participantId}`；host identity = `host:{connectorId}`；`session.controller` 存完整 identity（`viewer:pt_...`）。host 用 LiveKit `DataReceived.participant.identity` 校验，不接受客户端自报 identity。 |
 | D5 | 安全默认值 | `remoteDesktopEnabled=false`、`remoteDesktopAllowControl=false`、`remoteDesktopRequireConsent=true`、`remoteDesktopAllowUnattended=false`、`remoteDesktopClipboard=false`、`remoteDesktopMaxFps=30`、`remoteDesktopMaxBitrateKbps=4000`。开启 Enabled / AllowControl / AllowUnattended 必须在本机确认。 |
 | D6 | v1 功能边界 | 不做：未建会话的截图预览、无人值守、多显示器切换、E2EE、录制、音频、多 room、文件/图片剪贴板。 |
