@@ -21,8 +21,7 @@ fn main() {
     let url = std::env::var("LIVEKIT_URL").expect("LIVEKIT_URL is required");
     let token = std::env::var("LIVEKIT_TOKEN").expect("LIVEKIT_TOKEN is required");
     let room = std::env::var("LIVEKIT_ROOM").unwrap_or_else(|_| "rd_smoke".to_string());
-    let identity = std::env::var("LIVEKIT_IDENTITY")
-        .unwrap_or_else(|_| "host:smoke".to_string());
+    let identity = std::env::var("LIVEKIT_IDENTITY").unwrap_or_else(|_| "host:smoke".to_string());
     let mut publisher = LiveKitPublisher::new();
     publisher.start(
         "rds_smoke",

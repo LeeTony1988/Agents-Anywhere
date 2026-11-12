@@ -16,6 +16,9 @@ use crate::protocol::{
 };
 use crate::publish::{MediaGrant, Publisher, Stats};
 
+#[cfg(windows)]
+use crate::overlay::OverlayHandle;
+
 /// Host lifecycle states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostState {
@@ -74,6 +77,8 @@ pub struct Host {
     publisher: Arc<Mutex<Box<dyn Publisher>>>,
     stream_stop: Option<Arc<AtomicBool>>,
     stream_thread: Option<JoinHandle<()>>,
+    #[cfg(windows)]
+    overlay: Option<OverlayHandle>,
     sink: Box<dyn InputSink>,
     events: Box<dyn EventSink>,
 }
@@ -102,6 +107,8 @@ impl Host {
             publisher: Arc::new(Mutex::new(publisher)),
             stream_stop: None,
             stream_thread: None,
+            #[cfg(windows)]
+            overlay: None,
             sink,
             events,
         }
@@ -254,6 +261,13 @@ impl Host {
 
         self.session_id = Some(session_id.clone());
         self.start_stream();
+        #[cfg(windows)]
+        {
+            self.overlay = OverlayHandle::show();
+            if self.overlay.is_none() {
+                warn!("sharing overlay could not be shown");
+            }
+        }
         self.state = HostState::Running;
         self.emit_state(&session_id, "running");
         response_ok(id, serde_json::json!({"accepted": true}))
@@ -267,6 +281,7 @@ impl Host {
             if let Some(sid) = &session_id {
                 self.emit_state(sid, "stopping");
             }
+            self.hide_overlay();
             self.stop_stream();
             self.publisher.lock().unwrap().stop();
             self.capture.stop();
@@ -425,12 +440,20 @@ impl Host {
         }
     }
 
+    fn hide_overlay(&mut self) {
+        #[cfg(windows)]
+        if let Some(mut overlay) = self.overlay.take() {
+            overlay.stop();
+        }
+    }
+
     /// Full shutdown used on EOF / signals: release everything, stop media, idle out.
     pub fn shutdown(&mut self) {
         let session_id = self.session_id.clone();
         if self.state == HostState::Running || self.state == HostState::Starting {
             self.state = HostState::Stopping;
         }
+        self.hide_overlay();
         self.stop_stream();
         self.publisher.lock().unwrap().stop();
         self.capture.stop();
@@ -545,6 +568,7 @@ impl Host {
 
 impl Drop for Host {
     fn drop(&mut self) {
+        self.hide_overlay();
         self.stop_stream();
         self.publisher.lock().unwrap().stop();
         self.capture.stop();

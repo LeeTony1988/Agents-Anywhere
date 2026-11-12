@@ -14,8 +14,8 @@
   LiveKit token/webhook、HTTP 路由、WS ticket 与双工 WS、通知 handler、broker、维护 sweeper、
   删除清理与测试均已落地；Server 测试（含 PostgreSQL）通过。
 - **P2 Screen Host / Connector：完成主体**。`screen-host/` Rust 工程（协议、状态机、Windows 显示器
-  枚举、WGC/DXGI 采集、SendInput、截图）已交付并通过 `cargo test`；真实 WGC 采集代码已编译，
-  但本机 CI 会话无法验证交互式桌面捕获（需真机 `--ignored` 测试）。LiveKit 发布器已实现并
+  枚举、WGC/DXGI 采集、SendInput、截图、常驻共享提示窗）已交付并通过 `cargo test`；真实 WGC 采集
+  代码已编译，但本机 CI 会话无法验证交互式桌面捕获（需真机 `--ignored` 测试）。LiveKit 发布器已实现并
   在 `--features livekit` 下完成编译/链接（预编译 libwebrtc + 静态 CRT），并已用本地
   `livekit-server --dev` 验证 host 加入房间、发布 `screen` VP8 SCREEN_SHARE track；真实桌面采集
   到发布的完整链路仍需真机联调。

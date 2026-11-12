@@ -5,6 +5,8 @@ pub mod capture;
 pub mod config;
 pub mod host;
 pub mod input;
+#[cfg(windows)]
+pub mod overlay;
 pub mod pointer;
 pub mod protocol;
 pub mod publish;

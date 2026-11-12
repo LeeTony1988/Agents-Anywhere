@@ -7,6 +7,8 @@
 //! - EOF / shutdown frame triggers release_all + graceful exit 0.
 
 use std::io::{BufRead, Write};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::Duration;
 
 use aa_screen_host::capture::{self, CaptureSource};
 use aa_screen_host::config::HostConfig;
@@ -74,8 +76,9 @@ fn hello_frame(config: &HostConfig) -> HostControlMessage {
         pid: std::process::id(),
         capabilities: serde_json::json!({
             "capture": cfg!(windows),
+            "wgc": cfg!(feature = "wgc"),
             "input": cfg!(windows),
-            "publish": ["stub"],
+            "publish": if cfg!(feature = "livekit") { vec!["livekit"] } else { vec!["stub"] },
             "codecs": ["vp8"]
         }),
     })
@@ -157,88 +160,116 @@ struct App {
 
 impl App {
     fn run(&mut self) -> i32 {
-        let stdin = std::io::stdin();
         let mut out = std::io::stdout();
         let mut answered_any = false;
+        let (sender, receiver) = mpsc::channel();
+        std::thread::Builder::new()
+            .name("rd-stdin-reader".to_string())
+            .spawn(move || {
+                let stdin = std::io::stdin();
+                for line in stdin.lock().lines() {
+                    if sender.send(line).is_err() {
+                        break;
+                    }
+                }
+            })
+            .ok();
 
-        for line in stdin.lock().lines() {
-            let line = match line {
-                Ok(l) => l,
-                Err(e) => {
-                    log::error!("stdin read error: {e}");
+        loop {
+            let line = match receiver.recv_timeout(Duration::from_millis(200)) {
+                Ok(Ok(line)) => line,
+                Ok(Err(error)) => {
+                    log::error!("stdin read error: {error}");
                     break;
                 }
+                Err(RecvTimeoutError::Timeout) => {
+                    if aa_screen_host::overlay::stop_requested() {
+                        log::info!("local sharing overlay requested stop");
+                        break;
+                    }
+                    continue;
+                }
+                Err(RecvTimeoutError::Disconnected) => break,
             };
-            // +1 includes the stripped '\n', so an over-long line is caught even when
-            // it is *exactly* at the limit (a full frame is line + newline).
-            if line.len() + 1 > aa_screen_host::protocol::MAX_FRAME_BYTES {
-                write_frame(
-                    &mut out,
-                    &protocol_error(
-                        ERR_PROTOCOL,
-                        format!(
-                            "frame exceeds {} bytes",
-                            aa_screen_host::protocol::MAX_FRAME_BYTES
-                        ),
-                    ),
-                );
-                self.host.shutdown();
-                return EXIT_PROTOCOL_ERROR;
+            if let Some(code) = self.handle_line(&line, &mut out, &mut answered_any) {
+                return code;
             }
-            if line.trim().is_empty() {
-                continue;
-            }
-
-            let parsed: Result<HostControlMessage, _> = serde_json::from_str(&line);
-            let msg = match parsed {
-                Ok(m) => m,
-                Err(e) => {
-                    write_frame(
-                        &mut out,
-                        &protocol_error(ERR_PROTOCOL, format!("invalid JSON frame: {e}")),
-                    );
-                    self.host.shutdown();
-                    return EXIT_PROTOCOL_ERROR;
-                }
-            };
-
-            match msg {
-                HostControlMessage::Request(Request {
-                    id, method, params, ..
-                }) => {
-                    let resp = self.host.handle_request(id, method, &params);
-                    write_frame(&mut out, &resp);
-                    answered_any = true;
-                }
-                HostControlMessage::Shutdown(shutdown) => {
-                    log::info!(
-                        "shutdown frame received: {}",
-                        shutdown.reason.as_deref().unwrap_or("unspecified")
-                    );
-                    self.host.shutdown();
-                    write_frame(
-                        &mut out,
-                        &event(
-                            EventKind::State,
-                            serde_json::json!({"sessionId": self.host.session_id, "state": "stopped"}),
-                        ),
-                    );
-                    return 0;
-                }
-                other => {
-                    // Non-request inbound frames are logged (stderr) and ignored.
-                    log::warn!("ignoring unexpected inbound frame: {other:?}");
-                }
-            }
-
             if self.once && answered_any {
                 break;
             }
         }
 
-        // EOF (or --once completion): release everything and exit cleanly.
+        // EOF (or local overlay stop): release everything and exit cleanly.
         self.host.shutdown();
         0
+    }
+
+    /// Handle one NDJSON line; returns an exit code only on a terminal frame.
+    fn handle_line(
+        &mut self,
+        line: &str,
+        out: &mut std::io::Stdout,
+        answered_any: &mut bool,
+    ) -> Option<i32> {
+        if line.len() + 1 > aa_screen_host::protocol::MAX_FRAME_BYTES {
+            write_frame(
+                out,
+                &protocol_error(
+                    ERR_PROTOCOL,
+                    format!(
+                        "frame exceeds {} bytes",
+                        aa_screen_host::protocol::MAX_FRAME_BYTES
+                    ),
+                ),
+            );
+            self.host.shutdown();
+            return Some(EXIT_PROTOCOL_ERROR);
+        }
+        if line.trim().is_empty() {
+            return None;
+        }
+
+        let parsed: Result<HostControlMessage, _> = serde_json::from_str(line);
+        let msg = match parsed {
+            Ok(message) => message,
+            Err(error) => {
+                write_frame(
+                    out,
+                    &protocol_error(ERR_PROTOCOL, format!("invalid JSON frame: {error}")),
+                );
+                self.host.shutdown();
+                return Some(EXIT_PROTOCOL_ERROR);
+            }
+        };
+
+        match msg {
+            HostControlMessage::Request(Request {
+                id, method, params, ..
+            }) => {
+                let response = self.host.handle_request(id, method, &params);
+                write_frame(out, &response);
+                *answered_any = true;
+            }
+            HostControlMessage::Shutdown(shutdown) => {
+                log::info!(
+                    "shutdown frame received: {}",
+                    shutdown.reason.as_deref().unwrap_or("unspecified")
+                );
+                self.host.shutdown();
+                write_frame(
+                    out,
+                    &event(
+                        EventKind::State,
+                        serde_json::json!({"sessionId": self.host.session_id, "state": "stopped"}),
+                    ),
+                );
+                return Some(0);
+            }
+            other => {
+                log::warn!("ignoring unexpected inbound frame: {other:?}");
+            }
+        }
+        None
     }
 }
 

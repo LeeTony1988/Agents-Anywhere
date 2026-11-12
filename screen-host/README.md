@@ -20,8 +20,8 @@ stdio 拉起，双向使用 HostControl NDJSON 协议（`contracts/remote-deskto
 | 假采集/假输入（`fake.rs`） | ✅ 真实（测试用） | 2 帧 640x360 I420 渐变；事件记录 sink |
 | WGC 帧采集 | ✅ feature gate `wgc`（真实现，未在本机交互桌面验证） | `windows-capture 2.0.1`：优先 Windows.Graphics.Capture，失败时回退 DXGI Desktop Duplication；BGRA→I420、按 `maxWidth` 缩放、光标包含。默认 feature 关闭时仍用空白 stub 便于协议联调 |
 | LiveKit 发布 | ✅ feature gate `livekit`（真实现，未做真实 SFU 联调） | `NativeVideoSource` + `TrackSource::Screenshare` + VP8 + `simulcast=false`；Host 采集线程持续调用 `capture_frame`，2s 更新 fps/分辨率 stats；默认走 `StubPublisher` |
-| consent 确认框 / 悬浮条（RD-P2-13） | ❌ 未做 | 仅保留 `consentRequired` 字段 |
-| 打包 / CI（RD-P2-14/15） | ❌ 未做 | 本目录外的工作 |
+| consent 确认框 / 悬浮条（RD-P2-13） | ⚠️ 部分实现 | 常驻 Windows topmost 提示窗「正在共享屏幕 · 点击结束共享」，点击后主循环优雅 shutdown；Connector 侧可选原生 MessageBox 确认。macOS 菜单栏/托盘指示未做 |
+| 打包 / CI（RD-P2-14/15） | ⚠️ 部分实现 | 已加 CI `screen-host` job（Windows/macOS/Linux fmt+clippy+test，Windows 额外 `--features wgc`）；安装包集成未做 |
 
 ## 构建与检查
 
