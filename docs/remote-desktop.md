@@ -744,16 +744,27 @@ AGENT_SERVER_REMOTE_DESKTOP_SWEEP_SECONDS=5
 
 ### 11.3 监控
 
-| 指标 | 来源 |
-| --- | --- |
-| `rd_sessions_active{connector}` | Server 自有计数 |
-| `rd_session_duration_seconds` | 会话结束时直方图 |
-| `rd_input_rtt_ms` | host stats 上报 |
-| `rd_fps`, `rd_bitrate_kbps`, `rd_packet_loss` | host stats 上报 |
-| `livekit_room_participants`, `livekit_participant_*` | LiveKit Prometheus |
-| `rd_errors_total{code}` | Server 错误计数 |
+Server 暴露 Prometheus 文本指标：`GET /api/v2/metrics`。默认关闭，需要：
 
-告警：`rd_host_not_running` 连续 3 次、`media_unavailable` 持续 2 min、单节点转发带宽 > 70%。
+```text
+AGENT_SERVER_METRICS_ENABLED=true
+AGENT_SERVER_METRICS_TOKEN=<scrape token>   # 可选；设置后要求 Authorization: Bearer <token>
+```
+
+| 指标 | 类型 | 来源 |
+| --- | --- | --- |
+| `rd_sessions_active{instance}` | gauge | 抓取时读 PostgreSQL，跨 worker 准确 |
+| `rd_sessions_total{mode,instance}` | counter | 本进程创建的会话 |
+| `rd_sessions_ended_total{reason,instance}` | counter | 本进程结束的会话 |
+| `rd_session_duration_seconds{instance}` | histogram | 结束时记录，桶 30s…8h |
+| `rd_errors_total{code,instance}` | counter | 推送给客户端的错误 |
+| `rd_fps` / `rd_bitrate_kbps` / `rd_packet_loss_pct` / `rd_input_rtt_ms` | gauge | host 最近一次 stats 样本 |
+| `livekit_room_participants`, `livekit_participant_*` | gauge | LiveKit 自身 Prometheus（`prometheus_port: 6789`） |
+
+计数器是每进程的（带 `instance` 标签），多 worker 部署用 `sum by (...)` 聚合；`rd_sessions_active`
+是抓取时从数据库算出来的，无需聚合。
+
+告警建议：`rd_host_not_running` 连续 3 次、`media_unavailable` 持续 2 min、单节点转发带宽 > 70%。
 
 ---
 

@@ -181,6 +181,14 @@ class WsTicketManager(Protocol):
     ) -> tuple[str, str]: ...
 
 
+def _session_seconds(session: RemoteDesktopSession) -> float | None:
+    started = _parse_iso(session.startedAt or session.createdAt)
+    if started is None:
+        return None
+    ended = _parse_iso(session.endedAt) if session.endedAt else datetime.now(UTC)
+    return max(0.0, (ended - started).total_seconds())
+
+
 def _is_active(session: RemoteDesktopSession | None) -> bool:
     return session is not None and session.state in ACTIVE_STATES
 
@@ -279,6 +287,7 @@ class RemoteDesktopService:
         *,
         clock: Callable[[], str] = utc_now_iso,
         max_viewers_per_session: int = DEFAULT_MAX_VIEWERS_PER_SESSION,
+        metrics: Any | None = None,
     ) -> None:
         self._store = store
         self._requester = requester
@@ -290,6 +299,7 @@ class RemoteDesktopService:
         )
         self._clock = clock
         self._max_viewers = max(1, max_viewers_per_session)
+        self._metrics = metrics
         self._notification_handler = None
 
     # ------------------------------------------------------------------ read
@@ -544,6 +554,11 @@ class RemoteDesktopService:
                 else None
             ),
         )
+        if self._metrics is not None:
+            try:
+                self._metrics.record_created(mode)
+            except Exception:  # noqa: BLE001 - metrics are advisory
+                logger.debug("remote desktop metrics record_created failed")
         grant: MediaGrant | None = None
         host_grant: MediaGrant | None = None
         try:
@@ -994,6 +1009,11 @@ class RemoteDesktopService:
         )
         if not ended:
             return await self._store.get_remote_desktop_session(session.id)
+        if self._metrics is not None:
+            try:
+                self._metrics.record_ended(reason, duration_seconds=_session_seconds(session))
+            except Exception:  # noqa: BLE001 - metrics are advisory
+                logger.debug("remote desktop metrics record_ended failed")
         try:
             await self._requester.request(
                 session.connectorId,
@@ -1252,6 +1272,11 @@ class RemoteDesktopService:
         }
         if details:
             payload["details"] = dict(details)
+        if self._metrics is not None:
+            try:
+                self._metrics.record_error(code)
+            except Exception:  # noqa: BLE001 - metrics are advisory
+                logger.debug("remote desktop metrics record_error failed")
         await self._broker.publish_event(
             session_id, {"type": "remote_desktop.error", "payload": payload}
         )
@@ -1337,6 +1362,11 @@ class RemoteDesktopService:
         self, session: RemoteDesktopSession, stats: RemoteDesktopStats
     ) -> None:
         payload = stats.model_dump(mode="json", exclude_none=True)
+        if self._metrics is not None:
+            try:
+                self._metrics.observe_stats(payload)
+            except Exception:  # noqa: BLE001 - metrics are advisory
+                logger.debug("remote desktop metrics observe_stats failed")
         await self._broker.add_stats(session.id, payload)
         await self._update_session(session, stats=payload)
 

@@ -30,6 +30,7 @@ from agent_server.api import (
     connectors,
     dashboard_stream,
     error_handlers,
+    metrics,
     model_config,
     oauth,
     pairing,
@@ -86,6 +87,7 @@ from agent_server.services.remote_desktop_maintenance import (
     RemoteDesktopMaintenanceLoop,
 )
 from agent_server.services.remote_desktop_media import build_media_provider
+from agent_server.services.remote_desktop_metrics import RemoteDesktopMetrics
 from agent_server.services.remote_desktop_policy import current_settings
 from agent_server.services.session_runtime_state_cache import SessionRuntimeStateCache
 from agent_server.services.setup_tokens import SetupTokenService
@@ -387,6 +389,9 @@ def create_app(
     )
     if _rd_enabled and _rd_config_error:
         logger.warning("remote desktop media is misconfigured: {}", _rd_config_error)
+    app.state.remote_desktop_metrics = RemoteDesktopMetrics(
+        instance_id=process_settings.instance_id()
+    )
     app.state.remote_desktop_service = RemoteDesktopService(
         app.state.store,
         app.state.rpc,
@@ -399,6 +404,7 @@ def create_app(
         max_viewers_per_session=_env_positive_int(
             "AGENT_SERVER_REMOTE_DESKTOP_MAX_VIEWERS_PER_SESSION", 3
         ),
+        metrics=app.state.remote_desktop_metrics,
     )
     app.state.remote_desktop_maintenance = RemoteDesktopMaintenanceLoop(
         app.state.store,
@@ -505,6 +511,7 @@ def create_app(
     app.include_router(sessions_fs.router, prefix=API_V2_PREFIX)
     app.include_router(sessions_terminal.router, prefix=API_V2_PREFIX)
     app.include_router(remote_desktop_api.router, prefix=API_V2_PREFIX)
+    app.include_router(metrics.router, prefix=API_V2_PREFIX)
 
     static_dir = os.environ.get("AGENT_SERVER_STATIC_DIR")
     if static_dir:
