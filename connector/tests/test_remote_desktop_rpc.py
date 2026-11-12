@@ -180,6 +180,7 @@ def _handler(
     *,
     policy: RemoteDesktopPolicy | None = None,
     notify=None,
+    state_sink=None,
     consent_prompt=None,
     stats_coalesce_seconds: float = 2.0,
 ) -> RemoteDesktopRpcHandler:
@@ -188,6 +189,7 @@ def _handler(
         supervisor=stub,  # type: ignore[arg-type]
         policy=policy or RemoteDesktopPolicy.from_device_settings(_settings()),
         notify=notify,
+        state_sink=state_sink,
         consent_prompt=consent_prompt,
         config=_config(),
         stats_coalesce_seconds=stats_coalesce_seconds,
@@ -576,3 +578,24 @@ def test_remote_error_code_mapping() -> None:
         ScreenHostRemoteError("identity is not the controller", code="rd_not_controller")
     )
     assert controller_error.code == "rd_permission_denied"
+
+def test_host_state_updates_local_sharing_indicator() -> None:
+    states: list[dict[str, Any]] = []
+
+    async def sink(value: dict[str, Any]) -> None:
+        states.append(dict(value))
+
+    async def scenario() -> None:
+        handler = _handler(state_sink=sink)
+        await handler.handle_host_event(
+            "state", {"sessionId": "rds_1", "state": "running"}
+        )
+        await handler.handle_host_event(
+            "state", {"sessionId": "rds_1", "state": "stopped"}
+        )
+
+    asyncio.run(scenario())
+    assert states[0]["active"] is True
+    assert states[0]["state"] == "running"
+    assert states[1]["active"] is False
+    assert states[1]["state"] == "stopped"
