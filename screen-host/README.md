@@ -53,8 +53,10 @@ cargo run -- --once        # 只处理一行请求后优雅退出
 - 预编译 libwebrtc 使用静态 MSVC 运行时（/MT）。`screen-host/.cargo/config.toml` 已为
   MSVC 目标启用 `+crt-static`，并设置 `CC/CXX=clang-cl`（当前 Windows 镜像的 `cl.exe`
   在 cc-rs 探针上会报 D8050）。在标准 CI 镜像上可直接 `cargo build --features livekit`。
-- 真实 LiveKit 服务器联调尚未执行；发布器已编译、链接并通过单元测试，`request_keyframe`
-  按契约返回 false（Rust SDK 不暴露可靠的订阅端关键帧请求）。
+- 真实 LiveKit 服务器联调：已用本地 `livekit-server 1.13.11 --dev` + `examples/livekit_smoke.rs`
+  验证 `host:smoke` 加入 `rd_smoke`、发布 `screen` 的 VP8 `SCREEN_SHARE` track（640x360，约 18–30 fps），
+  服务端 stats 可见 frames/packets/bitrate。桌面采集到发布的完整链路仍需真机验证。
+- `request_keyframe` 按契约返回 false（Rust SDK 不暴露可靠的订阅端关键帧请求）。
 
 ## Windows 运行要求
 
