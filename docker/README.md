@@ -32,11 +32,16 @@ PostgreSQL-backed compose:
 
 ```bash
 POSTGRES_PASSWORD=change-me \
-AGENT_SERVER_SECRET=change-me-too \
+AGENT_SERVER_SECRET="$(openssl rand -hex 32)" \
 docker compose -f docker/docker-compose.postgres.yml up --build
 ```
 
 Open `http://127.0.0.1:5174`.
+
+`AGENT_SERVER_SECRET` signs user and connector access tokens and derives the key that
+encrypts stored credentials. Use a random value of **at least 32 characters**; with an
+empty, default or short value the Server still starts (so a local stack stays usable) but
+logs a warning at boot and stored-secret encryption refuses to work.
 
 ## Remote desktop (optional)
 
