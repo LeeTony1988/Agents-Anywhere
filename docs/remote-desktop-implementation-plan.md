@@ -11,7 +11,7 @@
 | P0 契约 1.0 | ✅ 冻结 | `validate.py` → 28 schema / 62 valid / 25 invalid；CI `contracts` job | — |
 | P1 Server 控制面 | ✅ 实现 + 真实联调 | 140 个 RD/指标/设置/架构用例；`e2e_full_chain.py` 用真实 Connector 跑通创建、consent、token、WS、结束 | 多 worker + Redis 的真实部署未验证 |
 | P2 Connector / Screen Host | 🟡 主体完成 | 46 个 Rust 测试 + clippy；host↔LiveKit 与整链发布均实测；打包脚本 + sha256 校验 | **真实 WGC 采集**需要交互式桌面；签名/公证需要证书 |
-| P3 Web / Desktop | ✅ 实现 | Web 499、Desktop 172+585、typecheck、静态构建；Desktop 悬浮窗/菜单栏项 | 浏览器/桌面端的真机 e2e 未跑 |
+| P3 Web / Desktop | ✅ 实现 + 浏览器实测 | Web 502、Desktop 172+585、typecheck、静态构建；真实浏览器打开远程桌面页、申请控制并看到租约倒计时；Desktop 悬浮窗/菜单栏项 | Desktop 客户端本身的真机 e2e 未跑；浏览器里视频像素需要真桌面采集 |
 | P4 Android | 🟡 除真机 | 382 单测、lint 0 error、`assembleDebug`、三个 gate；LiveKit 渲染与手势已接 | **真机观看/手势/中文输入**验收需要设备 |
 | P5 iOS | ⛔ 未开始 | — | 需要 macOS + Xcode，当前环境无法编译 |
 | P6 部署 | 🟡 文档与样例 | LiveKit compose/yaml、Prometheus 指标、nginx/Caddy 样例、版本与发布说明 | 真实 `docker compose up`、TURN、4G/企业网 ICE 未验证 |
