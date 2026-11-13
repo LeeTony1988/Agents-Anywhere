@@ -26,6 +26,17 @@ Primary realtime channel:
 WS /api/v2/sessions/{sessionId}/ws?ticket=...
 ```
 
+Remote desktop has its own control-plane socket with its own ticket scope; it
+never carries media or input:
+
+```text
+WS /api/v2/remote-desktop/sessions/{sessionId}/ws?ticket=...&cursor=...
+POST /api/v2/remote-desktop/sessions/{sessionId}/ticket
+```
+
+Events, cursors and the client frames (`ping`, `request_keyframe`,
+`update_quality`) are defined in [远程桌面 API](./remote-desktop.md#会话-websocket).
+
 Recovery endpoint:
 
 ```text
