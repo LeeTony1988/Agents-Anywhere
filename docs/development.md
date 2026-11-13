@@ -6,6 +6,19 @@
 
 使用 Python 3.12+、uv、Node.js 22、Corepack/Yarn。Docker 源码启动器需要 Docker Compose；Android 需要 JDK 17+（本项目用 JDK 21 验证）与 Android SDK，iOS 需要 Xcode。各子项目独立安装依赖，不在仓库根目录运行一个假设存在的总构建命令。
 
+### Windows 上跑全量测试
+
+`connector/tests` 里约 20 个用例断言 POSIX 语义（`chmod 600` 的文件模式、符号链接逃逸、可执行位、
+`codex`/`claude` 可执行文件的 shell 查找），在 Windows 上必然失败；这不是回归。按改动范围选择：
+
+```powershell
+cd connector
+.venv\Scripts\python.exe -m pytest tests -q -k "remote_desktop or device_settings or config"
+```
+
+Server 的全量 `pytest` 在 Windows 上还会卡在既有的 `tests/test_session_inventory_writes.py` 与
+`test_backend_mvp.py` 的终端转发用例上，同样按 `-k` 选择要跑的范围。
+
 ### Android 工具链
 
 SDK 用环境变量注入，**不要**提交 `android/local.properties`：
