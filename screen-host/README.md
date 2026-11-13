@@ -62,6 +62,14 @@ $env:AGENT_CONNECTOR_REMOTE_DESKTOP_SYNTHETIC_CAPTURE = "1"
 `server/scripts/e2e_full_chain.py --browser` 会同时设置这两个变量，并断言浏览器里的
 `<video>` 真的解出了 640×360、`readyState=4` 的画面。
 
+## 截图的格式
+
+`host.screenshot` 目前只输出 **PNG**（8 位灰度，按 `maxWidth` 整数步降采样），响应里的 `format`
+字段就是 `png`。请求里的 `format` 只是提示：没有 JPEG 编码器时不会伪造，Server 会把 host 报告的
+`format` 透传给客户端，客户端应按响应字段解码而不是按自己请求的格式解码。
+
+需要 JPEG 时再引入编码器；在那之前，UI 侧不要假设 `format=jpeg` 一定返回 JPEG。
+
 ## 手动探测输入与截图
 
 `scripts/probe-input.ps1` 把一段固定的 NDJSON（start → controlGrant → input → screenshot →

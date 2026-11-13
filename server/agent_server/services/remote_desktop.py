@@ -1143,11 +1143,18 @@ class RemoteDesktopService:
                 details={"reason": "host_not_running"},
             )
         data_base64 = result.get("dataBase64") or result.get("jpegBase64")
+        # `format` is the media type of `dataBase64`, which the request's
+        # `format` cannot guarantee: the host may only be able to encode PNG.
+        # Clients must decode by this field, not by what they asked for.
+        image_format = str(result.get("format") or "png").strip().lower()
+        if image_format not in {"png", "jpeg"}:
+            image_format = "png"
         return {
             "width": int(result.get("width") or 1),
             "height": int(result.get("height") or 1),
             "capturedAt": result.get("capturedAt") or self._clock(),
             "dataBase64": data_base64 or "",
+            "format": image_format,
         }
 
     async def issue_ticket(

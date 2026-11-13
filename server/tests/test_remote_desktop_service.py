@@ -947,3 +947,70 @@ def test_view_mode_with_no_media_is_unavailable() -> None:
         )
     assert getattr(caught.value, "code", "") == "media_unavailable"
     assert store.sessions == {}
+
+def test_screenshot_reports_the_host_image_format() -> None:
+    """`format` in the response is the truth; the request is only a hint.
+
+    The screen host currently only encodes PNG, so a client asking for JPEG must
+    be able to see that the bytes it got are PNG.
+    """
+
+    def take(requested: str, host_result: dict) -> dict:
+        service, _, requester, _, _, _ = _service()
+        created = asyncio.run(
+            service.create_or_join(
+                "conn_1",
+                "user_1",
+                {"connectorId": "conn_1", "mode": "view"},
+                client_platform="web",
+                app_version=None,
+            )
+        )
+        requester.screenshot_result = host_result
+        return asyncio.run(
+            service.screenshot(
+                created["session"]["id"],
+                "user_1",
+                created["participantId"],
+                {"format": requested, "maxWidth": 320},
+            )
+        )
+
+    png_bytes = "iVBORw0KGgo="
+    with_format = take(
+        "jpeg",
+        {
+            "width": 320,
+            "height": 200,
+            "capturedAt": "2026-11-13T00:00:00Z",
+            "dataBase64": png_bytes,
+            "format": "png",
+        },
+    )
+    assert with_format["format"] == "png"
+    assert with_format["dataBase64"] == png_bytes
+
+    # A host that reports nothing (older builds) is treated as PNG.
+    without_format = take(
+        "png",
+        {
+            "width": 320,
+            "height": 200,
+            "capturedAt": "2026-11-13T00:00:00Z",
+            "dataBase64": png_bytes,
+        },
+    )
+    assert without_format["format"] == "png"
+
+    # Anything unexpected is normalised rather than passed through.
+    odd = take(
+        "png",
+        {
+            "width": 320,
+            "height": 200,
+            "capturedAt": "2026-11-13T00:00:00Z",
+            "dataBase64": png_bytes,
+            "format": "webp",
+        },
+    )
+    assert odd["format"] == "png"
