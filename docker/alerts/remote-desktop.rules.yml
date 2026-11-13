@@ -1,0 +1,64 @@
+# Alerting rules for remote desktop.
+#
+# Thresholds mirror docs/remote-desktop.md §11.3. The counters carry an
+# `instance` label per Server worker, so everything is summed across workers
+# while `rd_sessions_active` is already cluster-wide (read from PostgreSQL).
+groups:
+  - name: agents-anywhere-remote-desktop
+    rules:
+      - alert: RemoteDesktopHostNotRunning
+        # A device that keeps reporting "host not running" usually means the
+        # screen host crashed or was blocked by the OS.
+        expr: |
+          sum by (instance) (increase(rd_errors_total{code="rd_host_not_running"}[10m])) >= 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Screen host keeps failing on a device"
+          description: "rd_host_not_running fired 3+ times in 10m on {{ $labels.instance }}."
+
+      - alert: RemoteDesktopMediaUnavailable
+        expr: |
+          sum by (instance) (increase(rd_errors_total{code="media_unavailable"}[5m])) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Remote desktop media is unavailable"
+          description: "The Server could not hand out a media grant for 2m (LiveKit down or misconfigured)."
+
+      - alert: RemoteDesktopNoActiveSessionsAfterTraffic
+        # A sharp drop to zero while usage counters keep moving suggests the
+        # sweeper is ending sessions too eagerly.
+        expr: |
+          sum(rd_sessions_active) == 0
+          and
+          sum(increase(rd_sessions_total[15m])) > 0
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "Sessions are created but none stay active"
+          description: "15m of created sessions with zero active sessions; check the maintenance sweeper timers."
+
+      - alert: RemoteDesktopHighBitrate
+        # Single-node forwarding bandwidth above ~70% of a 1 Gbit link.
+        expr: |
+          sum(rd_bitrate_kbps) > 700000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Remote desktop egress is close to link capacity"
+          description: "Aggregated host bitrate samples exceed 700 Mbps; consider capping per-session bitrate."
+
+      - alert: RemoteDesktopDurationLimitHits
+        expr: |
+          sum(increase(rd_sessions_ended_total{reason="duration_limit"}[1h])) > 0
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "Sessions hit the maximum duration"
+          description: "At least one session was cut off by the 8h limit in the last hour."

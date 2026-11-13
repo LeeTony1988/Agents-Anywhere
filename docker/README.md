@@ -91,6 +91,15 @@ The endpoint returns `text/plain; version=0.0.4`; counters are per worker and
 carry an `instance` label, so aggregate with `sum by (...)` when the Server runs
 several workers. LiveKit exposes its own metrics on `prometheus_port: 6789`.
 
+Ready-to-use scrape and alerting files live next to this README:
+
+- [`prometheus.yml`](./prometheus.yml) — scrapes `/api/v2/metrics` (token read
+  from `/etc/prometheus/metrics-token`) plus LiveKit on `:6789`;
+- [`alerts/remote-desktop.rules.yml`](./alerts/remote-desktop.rules.yml) — host
+  crashes, media outages, sessions that never stay active, egress near link
+  capacity and 8h-limit hits, using the thresholds from
+  [远程桌面](../docs/remote-desktop.md).
+
 ## Development Image
 
 `docker/Dockerfile.dev` starts the FastAPI backend and the Next.js dev server in

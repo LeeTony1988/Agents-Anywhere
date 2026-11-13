@@ -1,0 +1,27 @@
+# Prometheus scrape config for Agents Anywhere (remote desktop).
+#
+# Mount next to the compose file:
+#   -v ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+#   -v ./alerts:/etc/prometheus/alerts:ro
+#
+# The Server endpoint is off by default; enable it with
+# AGENT_SERVER_METRICS_ENABLED=true and (optionally) AGENT_SERVER_METRICS_TOKEN.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts/*.yml
+
+scrape_configs:
+  - job_name: agents-anywhere-server
+    metrics_path: /api/v2/metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/metrics-token
+    static_configs:
+      - targets: ["server-next:8000"]
+
+  - job_name: livekit
+    static_configs:
+      - targets: ["livekit:6789"]
