@@ -42,6 +42,26 @@ cargo run -- --stdio       # 默认：hello 帧 + stdin 逐行处理
 cargo run -- --once        # 只处理一行请求后优雅退出
 ```
 
+## 合成采集（开发与验证用）
+
+没有交互式桌面（CI、Windows session 0）时，可以打开合成采集：host 用同一个
+`CaptureSource` 契约输出一块移动的渐变图案，后面的 VP8 编码、LiveKit 发布、浏览器解码全部是真实链路。
+默认关闭，只在显式设置时启用：
+
+```powershell
+$env:AA_SCREEN_HOST_SYNTHETIC_CAPTURE = "1"
+cargo run -- --stdio
+```
+
+Connector 拉起 host 时会过滤环境变量，所以本地联调还要给 Connector 打开转发开关：
+
+```powershell
+$env:AGENT_CONNECTOR_REMOTE_DESKTOP_SYNTHETIC_CAPTURE = "1"
+```
+
+`server/scripts/e2e_full_chain.py --browser` 会同时设置这两个变量，并断言浏览器里的
+`<video>` 真的解出了 640×360、`readyState=4` 的画面。
+
 ## 端到端验证（host + LiveKit）
 
 `scripts/e2e-livekit.py` 用真实的 host 二进制驱动一次会话，断言 `hello`（含契约要求的
