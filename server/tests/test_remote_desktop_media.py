@@ -85,7 +85,28 @@ def test_livekit_controller_grant_publishes_data_with_short_ttl() -> None:
 def test_livekit_room_service_token_is_room_admin() -> None:
     provider = LiveKitMediaProvider("wss://rtc.example.com", "key", "secret")
     claims = _claims(provider.create_room_admin_token("rd_rds_test"))
-    assert claims["video"] == {"roomAdmin": True, "room": "rd_rds_test"}
+    # LiveKit rejects DeleteRoom/RemoveParticipant with a `roomAdmin`-only
+    # token (401 "permissions denied"), so the admin token has to carry
+    # `roomCreate` too. Verified against livekit-server 1.13.
+    assert claims["video"] == {
+        "roomAdmin": True,
+        "roomCreate": True,
+        "roomList": True,
+        "room": "rd_rds_test",
+    }
+    assert claims["exp"] - claims["iat"] == 60
+
+
+def test_admin_token_claims_cover_every_room_service_call() -> None:
+    provider = LiveKitMediaProvider("wss://rtc.example.com", "key", "secret")
+    video = _claims(provider.create_room_admin_token("rd_x"))["video"]
+    # One token serves DeleteRoom, RemoveParticipant and ListParticipants.
+    assert video["roomCreate"] is True
+    assert video["roomAdmin"] is True
+    assert video["room"] == "rd_x"
+    # It must not grant anything a participant could abuse (no joins, no video).
+    assert "roomJoin" not in video
+    assert "canPublish" not in video
 
 
 def test_noop_provider_is_unavailable_and_refuses_grants() -> None:

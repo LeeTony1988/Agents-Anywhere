@@ -205,7 +205,16 @@ class LiveKitMediaProvider:
         now = self._clock()
         payload = self._base_payload("server")
         payload["exp"] = int(now.timestamp()) + 60
-        payload["video"] = {"roomAdmin": True, "room": room}
+        # LiveKit authorizes DeleteRoom and RemoveParticipant through
+        # `roomCreate`/`roomAdmin`; a token carrying only `roomAdmin` comes back
+        # as 401 "permissions denied", which used to leave rooms open after a
+        # session ended. `roomList` keeps ListRooms usable for diagnostics.
+        payload["video"] = {
+            "roomAdmin": True,
+            "roomCreate": True,
+            "roomList": True,
+            "room": room,
+        }
         return sign_hs256_jwt(payload, self.api_secret)
 
     async def create_grant(
@@ -293,7 +302,8 @@ class LiveKitMediaProvider:
 
     async def _room_service_call(
         self, method: str, body: Mapping[str, Any]
-    ) -> None:
+    ) -> dict[str, Any] | None:
+        """One Twirp call; returns the decoded body so callers can inspect it."""
         room = str(body.get("room") or "")
         url = f"{self.room_service_url}/twirp/livekit.RoomService/{method}"
         headers = {
@@ -301,7 +311,15 @@ class LiveKitMediaProvider:
             "Content-Type": "application/json",
         }
         try:
-            async with self._client_factory(timeout=LIVEKIT_HTTP_TIMEOUT_SECONDS) as client:
+            # LiveKit is reached over the deployment's private network, so an
+            # ambient HTTP proxy (corporate laptop, CI image, sandbox) must not
+            # intercept these control calls: through a proxy they fail with an
+            # opaque 502 while the media path keeps working, which silently
+            # leaves rooms and participants behind. `trust_env=False` also keeps
+            # `NO_PROXY` bookkeeping out of the picture for loopback installs.
+            async with self._client_factory(
+                timeout=LIVEKIT_HTTP_TIMEOUT_SECONDS, trust_env=False
+            ) as client:
                 response = await client.post(url, json=dict(body), headers=headers)
             if response.status_code >= 400:
                 logger.warning(
@@ -309,6 +327,14 @@ class LiveKitMediaProvider:
                     method,
                     response.status_code,
                 )
+                return None
+            if not response.content:
+                return {}
+            try:
+                decoded = response.json()
+            except ValueError:
+                return None
+            return decoded if isinstance(decoded, dict) else None
         except Exception as exc:  # noqa: BLE001 - media must never break the control plane
             logger.warning(
                 "livekit room service call failed method={} error={}",

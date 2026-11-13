@@ -768,6 +768,18 @@ AGENT_SERVER_METRICS_TOKEN=<scrape token>   # 可选；设置后要求 Authoriza
 
 ---
 
+### 11.4 端到端验证脚本
+
+真实进程级的验证不依赖 Server 的数据库，可以单独跑：
+
+| 脚本 | 覆盖 | 前置 |
+| --- | --- | --- |
+| `screen-host/scripts/e2e-livekit.py` | host 的 NDJSON 协议 + 真实 LiveKit 发布：`hello`（`arch=x86_64`）、`host.start`、`starting→running→stopping→stopped`、退出码 0 | `livekit-server --dev --bind 127.0.0.1`；`screen-host/scripts/build-livekit.ps1` 构建 |
+| `server/scripts/e2e_media_plane.py` | Server 签发的 host grant 被真实 host 接受，SFU 侧看到 `host:<connectorId>` 与名为 `screen` 的 `SCREEN_SHARE` VP8 轨（`simulcast=false`），会话结束后 `delete_room` 成功 | 同上；用 `server/.venv` 的 Python 运行 |
+
+两个脚本都在 2026-11-13 本地通过。注意 `cargo test`/`cargo build`（不带 `--features livekit`）会覆盖
+`target/debug` 里的二进制，跑之前重新执行一次 `build-livekit.ps1`。
+
 ## 12. 实施计划
 
 | 阶段 | 内容 | 验收 |
