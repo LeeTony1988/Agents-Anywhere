@@ -66,7 +66,7 @@
 | RD-P2-16 host 端到端 | 真实 `aa-screen-host.exe` 的 start/info/screenshot/releaseAll/stop 联调通过；`scripts/e2e-livekit.py` 用真实二进制连真实 `livekit-server`，断言 `hello`（`arch=x86_64`）、start 被接受、`starting→running→stopping→stopped`、退出码 0，LiveKit 侧可见 `host:conn_e2e` 的 VP8 `onMediaTrack` | 采集是 Session 0 的 stub，不是真实桌面；没有 Server/Connector 参与的整链；kill host 后 Connector 上报与残留 participant 检查未做 |
 | RD-P3-07 Desktop 同步与原生层 | Web 实现已复制到 renderer；Connector local state → Electron `DesktopConnectorState` → 悬浮窗/菜单栏项/窗口内提示条；提示条可直接结束共享 | macOS status item 未在 macOS 验证；preload 只暴露「打开工作台」，没有「从悬浮窗直接结束共享」的 IPC |
 | RD-P3-09 端到端 | 各端 headless 检查通过 | Web/Desktop + 真 Server + 真 host + 真 LiveKit 的 Playwright/手动清单未执行 |
-| RD-P4 Android | P4-01…P4-06 已完成：编译、382 单测、`compileDebugAndroidTestKotlin`、`assembleDebug`（APK 108.3 MiB）与 `checkLegacyRoutes`/`checkRealtimeLifecycle`/`checkAndroidV2ReleaseGate` 全通过 | RD-P4-07 真机验收未做（观看 30 分钟、延迟/码率/耗电、手势与中文输入），`androidTest` 只编译未运行；剪贴板、PiP、截图未实现 |
+| RD-P4 Android | P4-01…P4-06 已完成：编译、382 单测、`compileDebugAndroidTestKotlin`、`assembleDebug`（APK 108.3 MiB）、`:app:lintDebug`（0 error）与 `checkLegacyRoutes`/`checkRealtimeLifecycle`/`checkAndroidV2ReleaseGate` 全通过 | RD-P4-07 真机验收未做（观看 30 分钟、延迟/码率/耗电、手势与中文输入），`androidTest` 只编译未运行；剪贴板、PiP、截图未实现 |
 | RD-P5 iOS | 无 | Windows 环境没有 Xcode，无法编译验证，未开始 |
 | RD-P6-01 Docker LiveKit | `docker/livekit.yaml` + compose `remote-desktop` profile（webhook、prometheus、TURN 证书挂载、Redis 服务名） | 未真实 `docker compose up` 验证（本机无 Docker daemon） |
 | RD-P6-02 端口与 TLS | 文档写明端口/`use_external_ip`/TURN 443 方案 | 真实 4G/企业网 ICE 未验证 |
