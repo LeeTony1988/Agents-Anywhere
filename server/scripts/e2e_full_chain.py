@@ -192,6 +192,9 @@ def start_server(db_url: str, port: int, log_path: Path) -> subprocess.Popen:
         "AGENT_SERVER_REMOTE_DESKTOP_SWEEP_SECONDS": "1",
         "AGENT_SERVER_PASSWORD_ITERATIONS": "1000",
     }
+    static_dir = os.environ.get("AGENT_E2E_STATIC_DIR")
+    if static_dir:
+        env["AGENT_SERVER_STATIC_DIR"] = static_dir
     handle = log_path.open("w", encoding="utf-8")
     process = subprocess.Popen(
         [
@@ -244,6 +247,12 @@ def main() -> int:
         default=str(ROOT / "screen-host" / "target" / "debug" / "aa-screen-host.exe"),
     )
     parser.add_argument("--keep-database", action="store_true")
+    parser.add_argument(
+        "--web-hold-seconds",
+        type=int,
+        default=0,
+        help="keep the first live session open for this many seconds and print its coordinates",
+    )
     parser.add_argument(
         "--fresh",
         action="store_true",
@@ -479,6 +488,25 @@ def main() -> int:
             log(f"FAIL: no 'screen' track: {json.dumps(tracks)[:400]}")
             return 1
         log(f"host publishing: {[track.get('name') for track in tracks]}")
+
+        if args.web_hold_seconds > 0:
+            print(
+                "WEB_READY "
+                + json.dumps(
+                    {
+                        "origin": origin,
+                        "token": token,
+                        "connectorId": connector_id,
+                        "sessionId": session_id,
+                        "participantId": created["participantId"],
+                        "room": room,
+                    }
+                ),
+                flush=True,
+            )
+            log(f"holding the live session for {args.web_hold_seconds}s")
+            time.sleep(args.web_hold_seconds)
+            log("hold finished")
 
         status, ended = http(
             "POST",
