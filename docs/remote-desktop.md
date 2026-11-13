@@ -1,8 +1,8 @@
 # 远程桌面（Remote Desktop）架构方案
 
-状态：实现中。P0 契约、P1 Server 控制面、P2 屏幕主机/Connector 主体、P3 Web/Desktop 观看与控制
-已落地；Android/iOS（P4/P5）未开始，真实 LiveKit/WGC 端到端验证待完成。本文描述目标架构与接口
-语义；**wire 契约以 `contracts/remote-desktop/1.0/schemas` 为唯一事实源**，HTTP/WS 端点细节见
+状态：实现中。P0 契约、P1 Server 控制面、P2 屏幕主机/Connector 主体、P3 Web/Desktop、
+P4 Android 观看与控制已落地；iOS（P5）与真机/真实桌面采集的端到端验收待完成。本文描述目标架构与
+接口语义；**wire 契约以 `contracts/remote-desktop/1.0/schemas` 为唯一事实源**，HTTP/WS 端点细节见
 [远程桌面 API](api/remote-desktop.md)，决策记录见
 [远程桌面 v1 决策记录](remote-desktop-decisions.md)。
 审查结论、阻塞项与分阶段实现清单见 [远程桌面实现计划](remote-desktop-implementation-plan.md)。
@@ -357,12 +357,12 @@ Host 与 Connector 之间的 stdio 协议（内部，不对外）：
 
 ### 6.4 客户端
 
-| 端 | 新增模块 | 依赖 |
-| --- | --- | --- |
-| Web (`web-next/`) | `lib/remote-desktop/{api,media,input,useRemoteDesktop}.ts`、`app/(app)/devices/[connectorId]/remote/page.tsx`、`components/remote-desktop/*` | `livekit-client` |
-| Android (`android/`) | `api/RemoteDesktopApi.kt` + DTO、`feature/remotedesktop/{RemoteDesktopController,RemoteInputEncoder,RemoteGestures}.kt`、`ui/screens/remote/*` | `io.livekit:livekit-android` |
-| iOS (`ios/`) | `API/V2/V2RemoteDesktopAPI.swift`、`Business/RemoteDesktopService.swift`、`Models/RemoteDesktopModel.swift`、`Views/Remote/RemoteDesktopView.swift` | `LiveKitClient`（SwiftPM） |
-| Desktop (`desktop-workbench/`) | 复用 Web 的渲染层 + 本机「被控中」悬浮提示与托盘菜单 | 同 Web |
+| 端 | 新增模块 | 依赖 | 状态 |
+| --- | --- | --- | --- |
+| Web (`web-next/`) | `lib/remote-desktop/{api,input,use-remote-desktop}.ts`、`components/remote-desktop/*`、路由 `#/device/:connectorId/remote` | `livekit-client` | 已实现 |
+| Desktop (`desktop-workbench/`) | 复用 Web 的渲染层；本机「被控中」提示条 + always-on-top 悬浮窗 + macOS 菜单栏项 | 同 Web | 已实现 |
+| Android (`android/`) | `api/RemoteDesktop{Api,Dtos}.kt`、`feature/remotedesktop/{RemoteDesktopSessionController,MediaSession,RemoteDesktopEventStream}`、`feature/remotedesktop/input/*`、`livekit/LiveKitMediaSession`、`ui/screens/remotedesktop/*` | `io.livekit:livekit-android` | 已实现，仅编译/单测验证 |
+| iOS (`ios/`) | `API/V2/V2RemoteDesktopAPI.swift`、`Business/RemoteDesktopService.swift`、`Models/RemoteDesktopModel.swift`、`Views/Remote/RemoteDesktopView.swift` | `LiveKitClient`（SwiftPM） | 未开始（需要 macOS + Xcode） |
 
 ### 6.5 部署（`docker/`）
 
