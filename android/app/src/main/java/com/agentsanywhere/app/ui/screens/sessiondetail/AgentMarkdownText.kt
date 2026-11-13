@@ -181,8 +181,11 @@ internal fun AgentMarkdownText(
     compact: Boolean = false,
 ) {
     val context = LocalContext.current
+    // One-time registration: keep `remember` for its side effect but return a
+    // value, so lint's RememberReturnType check stays happy.
     remember(context) {
         ensureLatexExtensionsRegistered(context)
+        true
     }
     val uriHandler = LocalUriHandler.current
     val (mathSource, document) = remember(text) {
