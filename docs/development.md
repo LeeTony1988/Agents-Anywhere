@@ -4,7 +4,25 @@
 
 `main` 是 v2 主线，新功能从最新 `main` 创建分支，分支名为 `<type>/<domain>/<topic>`（type 如 `feat`、`fix`、`docs`；domain 缩写为 `fe`、`be`、`con`、`dsk`、`apk`、`ios`、`dsh`、`docs`，多个 domain 用 `+` 连接），如 `feat/con+be/<topic>`。`v2` 保留用于发布过渡，不再把旧 `main` 的 API 和数据库假定套用到当前主线。历史资料见[升级指南](upgrading.md)。
 
-使用 Python 3.12+、uv、Node.js 22、Corepack/Yarn。Docker 源码启动器需要 Docker Compose；Android 需要 JDK 17 与 Android SDK，iOS 需要 Xcode。各子项目独立安装依赖，不在仓库根目录运行一个假设存在的总构建命令。
+使用 Python 3.12+、uv、Node.js 22、Corepack/Yarn。Docker 源码启动器需要 Docker Compose；Android 需要 JDK 17+（本项目用 JDK 21 验证）与 Android SDK，iOS 需要 Xcode。各子项目独立安装依赖，不在仓库根目录运行一个假设存在的总构建命令。
+
+### Android 工具链
+
+SDK 用环境变量注入，**不要**提交 `android/local.properties`：
+
+```powershell
+$env:ANDROID_HOME = "D:\android-sdk"
+$env:ANDROID_SDK_ROOT = "D:\android-sdk"
+cd android
+.\gradlew.bat --no-daemon :app:compileDebugKotlin   # 首次约 5 分钟
+.\gradlew.bat --no-daemon :app:testDebugUnitTest
+```
+
+需要的 SDK 包：`platform-tools`、`platforms;android-36`、`build-tools;36.0.0`，以及 **`build-tools;34.0.0`**——
+项目没有固定 `buildToolsVersion`，AGP 8.7.3 默认用 34.0.0；断网环境要先装好，否则会卡在自动下载。
+`compileSdk = 36` 超出 AGP 8.7.3 的测试上限，`android/gradle.properties` 里的
+`android.suppressUnsupportedCompileSdk=36` 只是消掉这条警告。`androidTest` 需要模拟器或真机，
+CI 不覆盖 Android。
 
 ## Web 与 Server 本地联调
 
