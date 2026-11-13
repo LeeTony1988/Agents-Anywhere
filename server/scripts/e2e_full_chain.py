@@ -496,7 +496,67 @@ def main() -> int:
         if after.get("participants"):
             log("WARN: participants still listed after end (departure timeout may still be pending)")
 
-        log("OK: full chain verified")
+        log("phase 2: consent-first denial without a local prompt")
+
+        status, settings = http(
+            "PATCH",
+            f"{base}/connectors/{connector_id}/device-settings",
+            token=token,
+            body={
+                "remoteDesktopRequireConsent": True,
+                "remoteDesktopAllowUnattended": False,
+            },
+        )
+        if status not in (200, 201):
+            log(f"FAIL: consent settings -> {status} {settings}")
+            return 1
+
+        status, denied = http(
+            "POST",
+            f"{base}/remote-desktop/sessions",
+            token=token,
+            body={
+                "connectorId": connector_id,
+                "mode": "control",
+                "displayId": "0",
+                "client": {"platform": "web", "appVersion": "2.3.0"},
+            },
+        )
+        log(f"consent create -> {status} {json.dumps(denied)[:300]}")
+        if status != 409:
+            log("FAIL: a device without an interactive prompt must deny consent with 409")
+            return 1
+        details = denied.get("detail", {}).get("details", {})
+        if details.get("reason") != "permission_denied":
+            log(f"FAIL: expected permission_denied, got {details}")
+            return 1
+
+        status, listing = http(
+            "GET",
+            f"{base}/remote-desktop/sessions?connectorId={connector_id}&limit=5",
+            token=token,
+        )
+        if status != 200:
+            log(f"FAIL: list sessions -> {status} {listing}")
+            return 1
+        denied_sessions = [
+            item
+            for item in listing.get("sessions", [])
+            if item.get("endReason") == "consent_denied"
+        ]
+        if not denied_sessions:
+            log(f"FAIL: no session recorded as consent_denied: {json.dumps(listing)[:400]}")
+            return 1
+        denied_room = denied_sessions[0].get("mediaRoom") or (
+            f"rd_{denied_sessions[0]['id']}"
+        )
+        participants = asyncio.run(list_participants(denied_room))
+        if participants.get("participants"):
+            log("FAIL: a denied consent session still has participants")
+            return 1
+        log(f"consent denied and recorded: {denied_sessions[0]['id']}")
+
+        log("OK: full chain verified (control with consent disabled, and consent-first denial)")
         return 0
     finally:
         for process in (connector_process, server_process):

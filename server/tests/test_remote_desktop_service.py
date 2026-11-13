@@ -14,6 +14,7 @@ from agent_server.core.remote_desktop import (
     RemoteDesktopQuality,
     RemoteDesktopSession,
     RemoteDesktopStats,
+    RemoteDesktopUnavailableError,
     viewer_identity,
 )
 from agent_server.services.remote_desktop import RemoteDesktopService
@@ -195,6 +196,7 @@ class FakeRequester:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, dict[str, Any], float]] = []
         self.fail_methods: set[str] = set()
+        self.fail_codes: dict[str, str] = {}
         self.screenshot_result: dict[str, Any] = {
             "width": 1280,
             "height": 720,
@@ -211,6 +213,8 @@ class FakeRequester:
         timeout: float = 30,
     ) -> Any:
         self.calls.append((connector_id, method, params, timeout))
+        if method in self.fail_codes:
+            raise RpcFailure(self.fail_codes[method])
         if method in self.fail_methods:
             raise RpcFailure()
         if method == "remoteDesktop.hostInfo":
@@ -399,6 +403,61 @@ def _service(
         max_viewers_per_session=3,
     )
     return service, store, requester, media, broker, tickets
+
+
+
+def test_consent_denial_surfaces_permission_denied_and_ends_the_session() -> None:
+    """A device that cannot prompt denies consent; the client must see why.
+
+    The connector raises `rd_permission_denied`, which used to be flattened into
+    "host is not available" and recorded as `media_error`.
+    """
+
+    service, store, requester, *_ = _service(settings=_settings())
+    requester.fail_codes["remoteDesktop.start"] = "rd_permission_denied"
+
+    with pytest.raises(RemoteDesktopUnavailableError) as caught:
+        asyncio.run(
+            service.create_or_join(
+                "conn_1",
+                "user_1",
+                {"connectorId": "conn_1", "mode": "control"},
+                client_platform="web",
+                app_version=None,
+            )
+        )
+    assert caught.value.status_code == 409
+    assert caught.value.details["reason"] == "permission_denied"
+    assert caught.value.details["code"] == "rd_permission_denied"
+    assert "denied" in str(caught.value).lower()
+
+    ended = [session for session in store.sessions.values() if session.state == "ended"]
+    assert ended, "the failed session must be ended"
+    assert ended[-1].endReason == "consent_denied"
+
+
+def test_start_failure_reasons_keep_the_connector_code() -> None:
+    for code, reason, end_reason in (
+        ("rd_host_not_installed", "host_not_installed", "policy_revoked"),
+        ("rd_host_not_running", "host_not_running", "media_error"),
+        ("rd_capture_failed", "capture_failed", "media_error"),
+        ("rd_display_not_found", "display_not_found", "media_error"),
+    ):
+        service, store, requester, *_ = _service(settings=_settings())
+        requester.fail_codes["remoteDesktop.start"] = code
+        with pytest.raises(RemoteDesktopUnavailableError) as caught:
+            asyncio.run(
+                service.create_or_join(
+                    "conn_1",
+                    "user_1",
+                    {"connectorId": "conn_1", "mode": "view"},
+                    client_platform="web",
+                    app_version=None,
+                )
+            )
+        assert caught.value.details["reason"] == reason, code
+        ended = [s for s in store.sessions.values() if s.state == "ended"]
+        assert ended and ended[-1].endReason == end_reason, code
 
 
 def test_create_view_issues_viewer_grant_and_starts_host() -> None:

@@ -275,6 +275,34 @@ def _participant_from_identity(identity: str | None) -> str | None:
     return None
 
 
+#: Connector/host error codes that deserve their own ``details.reason``.
+_START_FAILURE_REASONS: dict[str, str] = {
+    "rd_permission_denied": "permission_denied",
+    "rd_host_not_installed": "host_not_installed",
+    "rd_host_integrity": "host_not_installed",
+    "rd_host_not_running": "host_not_running",
+    "rd_host_timeout": "host_timeout",
+    "rd_capture_failed": "capture_failed",
+    "rd_display_not_found": "display_not_found",
+    "rd_unsupported": "unsupported_platform",
+    "rd_busy": "busy",
+    "rd_session_not_found": "session_not_found",
+    "rd_media_connect_failed": "media_connect_failed",
+}
+
+#: End reasons for a session whose start RPC failed before any media existed.
+_START_FAILURE_END_REASONS: dict[str, str] = {
+    "rd_permission_denied": "consent_denied",
+    "rd_unsupported": "policy_revoked",
+    "rd_host_not_installed": "policy_revoked",
+}
+
+
+def _start_failure_end_reason(exc: BaseException) -> str:
+    code = str(getattr(exc, "code", "") or "")
+    return _START_FAILURE_END_REASONS.get(code, "media_error")
+
+
 class RemoteDesktopService:
     def __init__(
         self,
@@ -613,11 +641,21 @@ class RemoteDesktopService:
                 connector.id,
                 str(exc) or exc.__class__.__name__,
             )
-            await self.end_from_system(session.id, "media_error")
+            reason = self._rpc_reason(exc)
+            # Consent denial and unsupported hosts are not "media" failures:
+            # record the reason the user actually experienced.
+            await self.end_from_system(session.id, _start_failure_end_reason(exc))
             raise RemoteDesktopUnavailableError(
-                message="Remote desktop host is not available.",
+                message=(
+                    "Remote desktop was denied on the device."
+                    if reason == "permission_denied"
+                    else "Remote desktop host is not available."
+                ),
                 status_code=409,
-                details={"reason": self._rpc_reason(exc)},
+                details={
+                    "reason": reason,
+                    "code": str(getattr(exc, "code", "") or ""),
+                },
             ) from exc
 
         session = await self._get_session(session.id, user_id)
@@ -1520,6 +1558,8 @@ class RemoteDesktopService:
             return "connector_offline"
         if exc.__class__.__name__ == "ConnectorOfflineError":
             return "connector_offline"
+        if code in _START_FAILURE_REASONS:
+            return _START_FAILURE_REASONS[code]
         return "host_not_running"
 
 
