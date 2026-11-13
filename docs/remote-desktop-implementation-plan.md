@@ -9,7 +9,7 @@
 | 阶段 | 状态 | 主要证据 | 阻塞原因 |
 | --- | --- | --- | --- |
 | P0 契约 1.0 | ✅ 冻结 | `validate.py` → 28 schema / 62 valid / 25 invalid；CI `contracts` job | — |
-| P1 Server 控制面 | ✅ 实现 + 真实联调 | **143** 个 RD/指标/设置/架构用例；`e2e_full_chain.py` 用真实 Connector 跑通配对→创建→consent→WS→控制权转移→结束 | 多 worker + Redis 的真实部署未验证 |
+| P1 Server 控制面 | ✅ 实现 + 真实联调 | **153** 个 RD/指标/设置/架构/密钥用例；`e2e_full_chain.py` 用真实 Connector 跑通配对→创建→consent→WS→控制权转移→结束 | 多 worker + Redis 的真实部署未验证 |
 | P2 Connector / Screen Host | 🟡 主体完成 | **36 lib + 16** Rust 测试 + clippy；host↔LiveKit 与整链发布均实测（合成采集下浏览器解出 640×360 画面）；截图支持 JPEG/PNG；打包脚本 + sha256 校验；`acceptance.py` 真机检查清单 | **真实 WGC 采集**需要交互式桌面；签名/公证需要证书 |
 | P3 Web / Desktop | ✅ 实现 + 脚本化浏览器验证 | Web **507**、Desktop renderer **593**、Electron main 172、typecheck、静态构建；`e2e_full_chain.py --browser` 用无头 Chrome（CDP，无需 Playwright）验证：远程桌面页渲染、申请控制→控制中+修饰键条、`<video>` 640×360/`readyState=4`、释放控制回退、点「截图」下载真实 JPEG（38 KB）；Desktop 悬浮窗/菜单栏项；两端修掉过「远程桌面路由回退首页」的缺陷 | Desktop 客户端本身的真机 e2e 未跑；浏览器画面来自合成采集 |
 | P4 Android | 🟡 除真机 | **388** 单测、`:app:lintDebug` 0 error、`assembleDebug`、`androidTest` 编译、三个 gate；LiveKit 渲染、手势/键盘、控制权、截图（FileProvider 分享）已接 | **真机观看/手势/中文输入/分享面板**验收需要设备 |
@@ -332,3 +332,64 @@ P6 部署/监控/发布：P1 起并行，P3 前完成 LiveKit/TURN/webhook 验�
 
 完成标准：P0 出口 + P1/P2/P3 出口 + 测试矩阵全绿 + 版本/文档/CHANGELOG 完成，才可以把远程桌面
 标记为「可用」；在此之前 UI 一律按能力 `supported=false` 隐藏。
+
+
+## 11. 需要外部条件的验收项
+
+这一节只列「代码已就绪、但本机环境无法执行」的验收，按需要的外部条件分组。每一项都给出可以直接照做
+的步骤，做完即可把对应计划条目勾上。
+
+### 11.1 真实 Windows 桌面采集（需要交互式登录会话）
+
+本机一直是 Session 0（无交互桌面），WGC/DXGI 都返回 Access Denied，所以只能用合成采集验证下游链路。
+
+```powershell
+# 1) 在登录的桌面会话里构建带 WGC 的 host
+cd screen-host
+.\scripts\build-livekit.ps1 -WebrtcDir target\webrtc\win-x64-release
+cargo test --features wgc -- --ignored     # 真实采集的冒烟测试
+
+# 2) 自动化部分（列显示器、每屏截图、指针网格/滚轮/修饰键/中文、releaseAll、退出码）
+python scripts\acceptance.py
+
+# 3) 人工清单（脚本末尾会打印）
+#    - host.info 的显示器与物理屏幕一一对应
+#    - 多显示器：指针落点跟随所捕获的显示器
+#    - 4K/高缩放：截图清晰、点选准确；1080p 与 4K 各连续 10 分钟
+#    - 运行中插拔显示器：host 不崩溃，host.info 反映新显示器
+#    - 锁屏/安全桌面：客户端表现为「点了没反应」，host 日志有一条 SendInput 警告
+```
+
+### 11.2 Android 真机（需要一台 Android 14 设备）
+
+```powershell
+cd android
+.\gradlew.bat :app:assembleDebug
+adb install -r app\build\outputs\apk\debug\app-debug.apk
+```
+
+在设备页点「看这台设备屏幕」后确认：视频出画、单指点按/拖动、长按右键、双指滚动/捏合、双击拖拽锁、
+三指呼出键盘、中文输入、申请/释放控制、切后台 30 秒内可恢复、锁屏时输入被释放、工具栏「截图」能保存并
+打开分享面板。
+
+### 11.3 iOS（需要 macOS + Xcode）
+
+按计划 P5-01…P5-07 实施；契约与 Web/Android 实现可直接对照，`LiveKitClient` 走 SwiftPM。当前环境是
+Windows，无法编译或真机验收。
+
+### 11.4 部署与网络（需要 Docker daemon、TURN 证书、可路由的网络）
+
+```bash
+AGENT_SERVER_LIVEKIT_API_SECRET=... docker compose -f docker/docker-compose.postgres.yml \
+  --profile remote-desktop up -d
+# 再开监控：--profile monitoring，并把 metrics token 写进 .local-dev/metrics-token
+```
+
+确认：LiveKit webhook 能到达 Server（会话从 `starting` 变 `live`）；TURN/TLS 在 443 可用；4G 与企业网
+都能建立 ICE；Prometheus 能抓到 `/api/v2/metrics` 且 `alerts/remote-desktop.rules.yml` 生效。
+
+### 11.5 签名与公证（需要代码签名证书）
+
+Windows 用 Authenticode 签 `aa-screen-host.exe` 与桌面安装包，macOS 用 codesign + notarize。然后把
+`screen-host/scripts/package.ps1` 的 `dist/<platform>-<arch>/` 交给
+`desktop-workbench/scripts/prepare-screen-host.mjs` 打进 `resources/screen-host/`，在干净 VM 上安装验证。
