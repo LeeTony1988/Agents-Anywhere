@@ -158,6 +158,187 @@ async def create_user_and_token(db_url: str) -> tuple[str, str]:
         await store.close()
 
 
+CHROME_CANDIDATES = (
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+)
+
+
+def chrome_path() -> str | None:
+    for candidate in CHROME_CANDIDATES:
+        if Path(candidate).is_file():
+            return candidate
+    return None
+
+
+async def _cdp_send(socket, message_id: int, method: str, params: dict) -> dict:
+    await socket.send(json.dumps({"id": message_id, "method": method, "params": params}))
+    while True:
+        raw = await socket.recv()
+        frame = json.loads(raw)
+        if frame.get("id") == message_id:
+            return frame
+
+
+async def _evaluate(socket, counter: list[int], expression: str) -> object:
+    counter[0] += 1
+    reply = await _cdp_send(
+        socket,
+        counter[0],
+        "Runtime.evaluate",
+        {"expression": expression, "returnByValue": True, "awaitPromise": True},
+    )
+    result = reply.get("result", {}).get("result", {})
+    return result.get("value")
+
+
+async def drive_browser(
+    *,
+    origin: str,
+    token: str,
+    user_id: str,
+    connector_id: str,
+    session_id: str,
+    port: int = 9333,
+    timeout: float = 60,
+) -> dict:
+    """Open the built web client in headless Chrome and click through a session.
+
+    Returns evidence: page texts observed, whether the remote desktop page
+    rendered, whether taking control flipped the UI to "控制中".
+    """
+
+    import websockets
+
+    executable = chrome_path()
+    if executable is None:
+        raise RuntimeError("no Chrome/Edge executable found")
+    profile = Path(tempfile.mkdtemp(prefix="rd-chrome-"))
+    process = subprocess.Popen(  # noqa: ASYNC220 - one short-lived browser
+        [
+            executable,
+            "--headless=new",
+            f"--remote-debugging-port={port}",
+            f"--user-data-dir={profile}",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-gpu",
+            "--window-size=1280,860",
+            "about:blank",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    evidence: dict = {"chrome": Path(executable).name}
+    try:
+        deadline = time.time() + 30
+        version: dict = {}
+        while time.time() < deadline:
+            try:
+                with urllib.request.urlopen(  # noqa: ASYNC210 - short local probe
+                    f"http://127.0.0.1:{port}/json/version", timeout=2
+                ) as response:
+                    version = json.loads(response.read())
+                break
+            except (urllib.error.URLError, OSError):
+                await asyncio.sleep(0.3)
+        if not version:
+            raise RuntimeError("Chrome DevTools endpoint never came up")
+        evidence["browser"] = version.get("Browser")
+
+        targets: list[dict] = []
+        deadline = time.time() + 20
+        while time.time() < deadline and not targets:
+            try:
+                with urllib.request.urlopen(  # noqa: ASYNC210 - short local probe
+                    f"http://127.0.0.1:{port}/json/list", timeout=2
+                ) as response:
+                    targets = [
+                        item
+                        for item in json.loads(response.read())
+                        if item.get("type") == "page"
+                    ]
+            except (urllib.error.URLError, OSError):
+                pass
+            await asyncio.sleep(0.3)
+        if not targets:
+            raise RuntimeError("no page target in Chrome")
+        ws_url = targets[0]["webSocketDebuggerUrl"]
+
+        session = json.dumps(
+            {"accessToken": token, "userId": user_id, "role": "admin"}
+        )
+        async with websockets.connect(ws_url, max_size=8 * 1024 * 1024) as socket:
+            counter = [0]
+            await _cdp_send(socket, 1, "Page.enable", {})
+            await _cdp_send(socket, 2, "Runtime.enable", {})
+            counter[0] = 2
+            # Seed the stored session before the app boots: the client reads it
+            # in a mount effect, so setting it after load would leave the login
+            # screen in place.
+            await _cdp_send(
+                socket,
+                3,
+                "Page.addScriptToEvaluateOnNewDocument",
+                {
+                    "source": (
+                        "try { window.localStorage.setItem('aa.session.v1', "
+                        f"{json.dumps(session)}); }} catch (error) {{}}"
+                    )
+                },
+            )
+            counter[0] = 3
+            route = f"{origin}/#/device/{connector_id}/remote"
+            await _cdp_send(socket, 4, "Page.navigate", {"url": route})
+            counter[0] = 4
+
+            deadline = time.time() + timeout
+            text = ""
+            while time.time() < deadline:
+                text = str(await _evaluate(socket, counter, "document.body.innerText") or "")
+                if "远程桌面" in text and "申请控制" in text:
+                    break
+                await asyncio.sleep(1)
+            evidence["remotePage"] = "远程桌面" in text
+            evidence["text"] = text[:400]
+
+            clicked = await _evaluate(
+                socket,
+                counter,
+                """
+                (() => {
+                  const buttons = Array.from(document.querySelectorAll('button'));
+                  const target = buttons.find((b) => b.innerText.includes('申请控制'));
+                  if (!target) return false;
+                  target.click();
+                  return true;
+                })()
+                """,
+            )
+            evidence["clickedTakeControl"] = bool(clicked)
+            deadline = time.time() + timeout
+            controlling = False
+            while time.time() < deadline:
+                text = str(await _evaluate(socket, counter, "document.body.innerText") or "")
+                if "控制中" in text:
+                    controlling = True
+                    break
+                await asyncio.sleep(1)
+            evidence["controlling"] = controlling
+            evidence["controlText"] = text[:400]
+            await _evaluate(socket, counter, "window.localStorage.clear(); 'ok'")
+        return evidence
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+
+
 def migrate(db_url: str, log_path: Path) -> None:
     """Bring the fresh e2e database to the current schema revision."""
 
@@ -252,6 +433,11 @@ def main() -> int:
         type=int,
         default=0,
         help="keep the first live session open for this many seconds and print its coordinates",
+    )
+    parser.add_argument(
+        "--browser",
+        action="store_true",
+        help="drive headless Chrome through the built web client instead of just holding",
     )
     parser.add_argument(
         "--fresh",
@@ -489,13 +675,14 @@ def main() -> int:
             return 1
         log(f"host publishing: {[track.get('name') for track in tracks]}")
 
-        if args.web_hold_seconds > 0:
+        if args.web_hold_seconds > 0 or args.browser:
             print(
                 "WEB_READY "
                 + json.dumps(
                     {
                         "origin": origin,
                         "token": token,
+                        "userId": user_id,
                         "connectorId": connector_id,
                         "sessionId": session_id,
                         "participantId": created["participantId"],
@@ -504,9 +691,56 @@ def main() -> int:
                 ),
                 flush=True,
             )
-            log(f"holding the live session for {args.web_hold_seconds}s")
-            time.sleep(args.web_hold_seconds)
-            log("hold finished")
+            if args.browser:
+                log("driving headless Chrome through the web client")
+                try:
+                    evidence = asyncio.run(
+                        drive_browser(
+                            origin=origin,
+                            token=token,
+                            user_id=user_id,
+                            connector_id=connector_id,
+                            session_id=session_id,
+                        )
+                    )
+                except Exception as error:  # noqa: BLE001 - reported below
+                    log(f"FAIL: browser check raised {error!r}")
+                    return 1
+                log(
+                    "browser: "
+                    + json.dumps(
+                        {
+                            key: evidence.get(key)
+                            for key in (
+                                "browser",
+                                "remotePage",
+                                "clickedTakeControl",
+                                "controlling",
+                            )
+                        }
+                    )
+                )
+                if not evidence.get("remotePage"):
+                    log("FAIL: the remote desktop page did not render")
+                    return 1
+                if not evidence.get("controlling"):
+                    log("FAIL: taking control from the browser did not take effect")
+                    return 1
+                participants = asyncio.run(list_participants(room))
+                identities = sorted(
+                    item.get("identity") for item in participants.get("participants", [])
+                )
+                log(f"SFU participants after browser join: {identities}")
+                if not any(
+                    isinstance(identity, str) and identity.startswith("viewer:")
+                    for identity in identities
+                ):
+                    log("FAIL: the browser participant never joined the room")
+                    return 1
+            if args.web_hold_seconds > 0:
+                log(f"holding the live session for {args.web_hold_seconds}s")
+                time.sleep(args.web_hold_seconds)
+                log("hold finished")
 
         status, ended = http(
             "POST",
