@@ -388,6 +388,52 @@ async def drive_browser(
                     break
                 await asyncio.sleep(1)
             evidence["releasedControl"] = released_ok
+
+            # Screenshot: the toolbar button downloads a file; assert real bytes.
+            download_dir = Path(tempfile.mkdtemp(prefix="rd-download-"))
+            counter[0] += 1
+            await _cdp_send(
+                socket,
+                counter[0],
+                "Browser.setDownloadBehavior",
+                {
+                    "behavior": "allow",
+                    "downloadPath": str(download_dir),
+                    "eventsEnabled": True,
+                },
+            )
+            shot_clicked = await _evaluate(
+                socket,
+                counter,
+                """
+                (() => {
+                  const button = document.querySelector('button[aria-label="截图"]');
+                  if (!button) return false;
+                  button.click();
+                  return true;
+                })()
+                """,
+            )
+            evidence["clickedScreenshot"] = bool(shot_clicked)
+            downloaded: list[Path] = []
+            deadline = time.time() + 20
+            while time.time() < deadline and not downloaded:
+                downloaded = [
+                    item
+                    for item in download_dir.iterdir()
+                    if item.is_file() and item.suffix in (".jpg", ".jpeg", ".png")
+                ]
+                if not downloaded:
+                    await asyncio.sleep(0.5)
+            if downloaded:
+                payload = downloaded[0].read_bytes()
+                evidence["screenshot"] = {
+                    "name": downloaded[0].name,
+                    "bytes": len(payload),
+                    "jpeg": payload[:2] == b"\xff\xd8",
+                    "png": payload[:8] == b"\x89PNG\r\n\x1a\n",
+                }
+            shutil.rmtree(download_dir, ignore_errors=True)
             await _evaluate(socket, counter, "window.localStorage.clear(); 'ok'")
         return evidence
     finally:
@@ -790,6 +836,8 @@ def main() -> int:
                                 "modifierBar",
                                 "clickedRelease",
                                 "releasedControl",
+                                "clickedScreenshot",
+                                "screenshot",
                             )
                         }
                     )
@@ -808,6 +856,10 @@ def main() -> int:
                     return 1
                 if not evidence.get("releasedControl"):
                     log("FAIL: releasing control did not restore the request button")
+                    return 1
+                screenshot = evidence.get("screenshot") or {}
+                if not (screenshot.get("jpeg") or screenshot.get("png")):
+                    log(f"FAIL: the screenshot button did not download a real image: {screenshot}")
                     return 1
                 participants = asyncio.run(list_participants(room))
                 identities = sorted(
