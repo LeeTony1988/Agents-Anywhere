@@ -95,7 +95,8 @@ class FilesControllerPreviewTest {
         val progress = mutableListOf<Long>()
         val local = controller.downloadRemoteFile(info, cacheDir) { done, _ -> progress += done }.getOrThrow()
         assertEquals("季度 报告.pdf", local.file.name)
-        assertTrue(local.file.path.contains("/$FILE_PREVIEW_CACHE_DIRECTORY/"))
+        // Compare the directory structure rather than a literal path: Windows uses backslashes.
+        assertEquals(File(cacheDir, FILE_PREVIEW_CACHE_DIRECTORY), local.file.parentFile?.parentFile)
         assertArrayEquals(content, local.file.readBytes())
         assertEquals(content.size.toLong(), progress.last())
         assertTrue(progress.size > 1)

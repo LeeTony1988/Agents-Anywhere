@@ -32,6 +32,7 @@ com.agentsanywhere.app.app
 - `DevicesApi` / `DevicesDtos`：设备列表、重命名、删除、pairing、runtime capabilities。
 - `TerminalApi` / `TerminalDtos`：打开、关闭、stream URL。
 - `FilesApi` / `FilesDtos`：目录列表、文本文件读取。
+- `RemoteDesktopApi` / `RemoteDesktopDtos`：设备远程桌面能力、会话、控制权、媒体 token、WS ticket、截图。
 
 不应该放这里：
 
@@ -156,6 +157,8 @@ Sessions、Devices、Files、Terminal 相关代码按下面方式归位：
 - `api/DevicesApi.kt`：调用设备相关端点，解析远端设备数据。
 - `api/FilesApi.kt`：调用文件系统端点，解析目录和文本文件。
 - `api/TerminalApi.kt`：调用终端端点，生成终端 stream URL。
+- `api/RemoteDesktopApi.kt`：调用远程桌面端点，解析 host info、会话、媒体授权与截图。
+- `feature/remotedesktop/`：token 续签时机、入口可见性等不碰 Compose 的远程桌面规则。
 - `feature/sessions/SessionsController.kt`：加载、更新 sessions；可以聚合 devices 生成首页状态，但不放设备写操作。
 - `feature/devices/DevicesController.kt`：设备重命名、删除、setup、pairing、删除设备 agent。
 - `feature/sessions/SessionsState.kt`：sessions 页面状态和派生状态。

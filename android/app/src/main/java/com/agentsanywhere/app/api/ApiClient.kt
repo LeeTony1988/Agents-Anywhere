@@ -230,6 +230,7 @@ class ApiClient(
                         message = parseErrorMessage(responseText) ?: defaultErrorMessage(responseCode),
                         statusCode = responseCode,
                         errorCode = parseErrorCode(responseText),
+                        errorDetails = parseErrorDetails(responseText),
                     )
                 }
                 if (responseText.isBlank()) JSONObject() else JSONObject(responseText)
@@ -309,6 +310,7 @@ class ApiClient(
                             message = parseErrorMessage(responseText) ?: defaultErrorMessage(response.code),
                             statusCode = response.code,
                             errorCode = parseErrorCode(responseText),
+                            errorDetails = parseErrorDetails(responseText),
                         )
                     }
 
@@ -366,6 +368,7 @@ class ApiClient(
                         message = parseErrorMessage(responseText) ?: defaultErrorMessage(response.code),
                         statusCode = response.code,
                         errorCode = parseErrorCode(responseText),
+                        errorDetails = parseErrorDetails(responseText),
                     )
                 }
                 val body = response.body ?: throw ApiException("The server returned an empty file.", response.code)
@@ -432,6 +435,12 @@ class ApiClient(
     private fun parseErrorCode(responseText: String): String? = runCatching {
         val body = JSONObject(responseText)
         (body.optJSONObject("detail") ?: body).optString("code").takeIf(String::isNotBlank)
+    }.getOrNull()
+
+    /** `detail.details` of an error envelope, such as `{"reason":"connector_offline"}`. */
+    private fun parseErrorDetails(responseText: String): JSONObject? = runCatching {
+        val body = JSONObject(responseText)
+        (body.optJSONObject("detail") ?: body).optJSONObject("details")
     }.getOrNull()
 
     private fun parseErrorMessage(responseText: String): String? {
@@ -507,4 +516,6 @@ class ApiException(
     val statusCode: Int? = null,
     cause: Throwable? = null,
     val errorCode: String? = null,
+    /** `detail.details` object of the error envelope, when the Server sent one. */
+    val errorDetails: JSONObject? = null,
 ) : Exception(message, cause)

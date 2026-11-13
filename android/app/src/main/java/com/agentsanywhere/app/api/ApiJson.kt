@@ -25,6 +25,11 @@ internal fun JSONObject.optNullableBoolean(name: String): Boolean? {
     return opt(name) as? Boolean
 }
 
+internal fun JSONObject.optNullableDouble(name: String): Double? {
+    if (!has(name) || isNull(name)) return null
+    return (opt(name) as? Number)?.toDouble()
+}
+
 internal fun JSONObject?.toMap(): Map<String, Any?> {
     if (this == null) return emptyMap()
     return keys().asSequence().associateWith { key -> opt(key).toKotlinValue() }

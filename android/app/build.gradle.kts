@@ -98,6 +98,7 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.webkit)
     implementation(libs.lucide.icons)
+    implementation(libs.livekit.android)
     implementation(libs.mlkit.barcode.scanning)
     implementation(libs.okhttp)
     implementation(libs.sora.editor)
