@@ -42,6 +42,13 @@ cd android
 `compileSdk = 36` 超出 AGP 8.7.3 的测试上限，`android/gradle.properties` 里的
 `android.suppressUnsupportedCompileSdk=36` 只是消掉这条警告。
 
+#### Android Studio 的 Gradle JDK
+
+Studio 2026.2.2 自带的 JBR 是 **Java 25**，而项目的 Gradle wrapper 是 8.10.2——它不接受 Java 25，
+用默认设置 sync 会直接失败（`What went wrong: 25.0.4`）。在
+**Settings → Build, Execution, Deployment → Build Tools → Gradle → Gradle JDK** 里选 JDK 17 或 21
+（本机验证过 `D:\jdk-21_windows-x64_bin\jdk-21.0.11`），不要用 "Embedded JDK"。
+
 #### 在模拟器上跑 `androidTest`
 
 已用 Android Studio 2026.2.2 自带的 emulator 37.2.13 + `system-images;android-37.0;google_apis_playstore;x86_64`
