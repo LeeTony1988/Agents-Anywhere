@@ -57,7 +57,7 @@
 
 | 条目 | 已做到 | 缺口 |
 | --- | --- | --- |
-| RD-P1-16 集成测试 | 单 worker + 真实 PostgreSQL 的远程桌面/设备设置/架构边界 130+ 用例通过；`test_remote_desktop_maintenance_db.py` 用两个独立的 maintenance loop 服务实例跑同一个 PG，证明过期会话只被推进一次、结束原因不被覆盖；`server/scripts/e2e_full_chain.py` 跑通真实 Server + 真实 Connector + 真实 host + 真实 LiveKit 的整链（配对 → 创建 → live → SFU 见 `screen` 轨 → 结束 → 房间清空），并额外验证「必须本机确认」时的拒绝路径与真实控制面 WebSocket 事件 | 仍是单 Server 进程（没有 Redis 多 worker 真实部署），也没有浏览器/手机客户端参与 |
+| RD-P1-16 集成测试 | 单 worker + 真实 PostgreSQL 的远程桌面/设备设置/架构边界 130+ 用例通过；`test_remote_desktop_maintenance_db.py` 用两个独立的 maintenance loop 服务实例跑同一个 PG，证明过期会话只被推进一次、结束原因不被覆盖；`server/scripts/e2e_full_chain.py` 跑通真实 Server + 真实 Connector + 真实 host + 真实 LiveKit 的整链（配对 → 创建 → live → SFU 见 `screen` 轨 → 结束 → 房间清空），并额外验证「必须本机确认」时的拒绝路径、真实控制面 WebSocket 事件、以及两个客户端之间的控制权转移（`take-control` → `control.revoked` → 抢回 → `release-control`） | 仍是单 Server 进程（没有 Redis 多 worker 真实部署），也没有浏览器/手机客户端参与 |
 | RD-P2-03 host 定位/校验 | 按 `screen-host/<platform>-<arch>/` 解析并对开发目录回退；`scripts/package.ps1` 写出 `manifest.json`（platform/arch/version/sha256/features），Connector 校验 sha256，篡改或不匹配时以 `rd_host_integrity` 拒绝启动；`hostPath` 只来自本地配置 | 没有 Authenticode / codesign / teamID 校验（只有哈希完整性） |
 | RD-P2-04 Supervisor | 三路 PIPE、4 MiB 限制、env allowlist、Windows Job Object、POSIX guardian、ping 3 次重启、退避限流都有实现与单测 | 「kill host / kill Connector / 注销用户」三场景未在真机矩阵里验证；stderr 轮转未做 |
 | RD-P2-05 退出清理 | `run_forever` finally 调用 `aclose()` → release-all/stop/terminate；stdin EOF 与 shutdown 帧已覆盖 | Ctrl-C/SIGTERM 信号路径未接（依赖 Connector 进程退出时的 finally） |
