@@ -56,7 +56,7 @@
 | RD-P6-01 Docker LiveKit | `docker/livekit.yaml` + compose `remote-desktop` profile（webhook、prometheus、TURN 证书挂载、Redis 服务名） | 未真实 `docker compose up` 验证（本机无 Docker daemon） |
 | RD-P6-02 端口与 TLS | 文档写明端口/`use_external_ip`/TURN 443 方案 | 真实 4G/企业网 ICE 未验证 |
 | RD-P6-03 Server 环境变量 | 完整命名、缺配置时能力 `supported=false` 且不崩溃 | `AGENT_SERVER_SECRET` 强度校验未加 |
-| RD-P6-04 反代 | `docker/README.md` 写明 WebSocket upgrade、webhook 不重写 body、请求体上限 | 没有 nginx/caddy 样例文件与集成测试 |
+| RD-P6-04 反代 | `docker/README.md` 写明 WebSocket upgrade、webhook 不重写 body、请求体上限；新增 `docker/nginx-remote-desktop.conf` 与 `docker/Caddyfile` 两份可直接使用的样例 | 两份样例未经真实反代集成测试（本机没有 nginx/caddy） |
 
 ### 未开始
 
