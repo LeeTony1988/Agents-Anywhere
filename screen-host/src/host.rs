@@ -367,6 +367,14 @@ impl Host {
             .and_then(serde_json::Value::as_u64)
             .map(|v| v as u32)
             .unwrap_or(DEFAULT_MAX_WIDTH);
+        let format = ScreenshotFormat::from_request(
+            params.get("format").and_then(serde_json::Value::as_str),
+        );
+        let quality = params
+            .get("quality")
+            .and_then(serde_json::Value::as_u64)
+            .map(|value| value.clamp(1, 100) as u8)
+            .unwrap_or(DEFAULT_JPEG_QUALITY);
 
         // Display selection: explicit param wins, else the running session's display,
         // else the first enumerated display.
@@ -380,7 +388,7 @@ impl Host {
             return response_err(id, ERR_CAPTURE_FAILED, "no displays available");
         };
 
-        let result = self.capture_screenshot(&display_id, max_width);
+        let result = self.capture_screenshot(&display_id, max_width, format, quality);
         match result {
             Ok(value) => response_ok(id, value),
             Err(CaptureError::Unsupported) => response_err(
@@ -574,6 +582,8 @@ impl Host {
         &mut self,
         display_id: &str,
         max_width: u32,
+        format: ScreenshotFormat,
+        quality: u8,
     ) -> Result<serde_json::Value, CaptureError> {
         // Single-frame capture path: try a fresh probe capture of the requested
         // display; fall back to draining one frame from the active capture source
@@ -586,13 +596,16 @@ impl Host {
             }
             Err(e) => return Err(e),
         };
-        let png = encode_png(&frame, max_width)?;
+        let (data, width, height) = match format {
+            ScreenshotFormat::Png => encode_png(&frame, max_width)?,
+            ScreenshotFormat::Jpeg => encode_jpeg(&frame, max_width, quality)?,
+        };
         Ok(serde_json::json!({
-            "dataBase64": png.0,
-            "width": png.1,
-            "height": png.2,
+            "dataBase64": data,
+            "width": width,
+            "height": height,
             "capturedAt": frame.captured_at,
-            "format": "png"
+            "format": format.as_str()
         }))
     }
 
@@ -718,6 +731,66 @@ fn base64_encode(data: &[u8]) -> String {
         }
     }
     out
+}
+
+/// Quality used when the request does not set one.
+const DEFAULT_JPEG_QUALITY: u8 = 80;
+
+/// Image format of a screenshot; the response tells the client what it got.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScreenshotFormat {
+    Png,
+    Jpeg,
+}
+
+impl ScreenshotFormat {
+    /// `format` is a request hint: anything unknown falls back to PNG, and the
+    /// response's `format` field is authoritative.
+    pub fn from_request(value: Option<&str>) -> Self {
+        match value.unwrap_or("png").trim().to_ascii_lowercase().as_str() {
+            "jpeg" | "jpg" => Self::Jpeg,
+            _ => Self::Png,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+            Self::Jpeg => "jpeg",
+        }
+    }
+}
+
+/// Grayscale JPEG of the luma plane, downscaled by the same integer step as PNG.
+///
+/// Screenshots are dominated by payload size: the stored-block PNG below is
+/// uncompressed, while JPEG is ~10x smaller for the same picture.
+fn encode_jpeg(
+    frame: &Frame,
+    max_width: u32,
+    quality: u8,
+) -> Result<(String, u32, u32), CaptureError> {
+    let step = (frame.width.max(1) / max_width.max(1)).max(1);
+    let out_w = frame.width.div_ceil(step);
+    let out_h = frame.height.div_ceil(step);
+    let stride = frame.stride as usize;
+    let y_plane = &frame.i420[..stride * frame.height as usize];
+    let mut gray = Vec::with_capacity((out_w * out_h) as usize);
+    for y in (0..frame.height).step_by(step as usize) {
+        let row = &y_plane[y as usize * stride..];
+        for x in (0..frame.width).step_by(step as usize) {
+            gray.push(row[x as usize]);
+        }
+    }
+    let width =
+        u16::try_from(out_w).map_err(|_| CaptureError::Failed("screenshot too wide".into()))?;
+    let height =
+        u16::try_from(out_h).map_err(|_| CaptureError::Failed("screenshot too tall".into()))?;
+    let mut out = Vec::new();
+    jpeg_encoder::Encoder::new(&mut out, quality)
+        .encode(&gray, width, height, jpeg_encoder::ColorType::Luma)
+        .map_err(|error| CaptureError::Failed(format!("jpeg encode failed: {error}")))?;
+    Ok((base64_encode(&out), out_w, out_h))
 }
 
 /// Minimal PNG encoder (8-bit grayscale, no compression beyond stored blocks) so a

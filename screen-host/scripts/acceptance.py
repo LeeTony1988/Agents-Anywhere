@@ -221,7 +221,8 @@ def main() -> int:
                 check(report, f"view.start[{display_id}]", False, json.dumps(started.get("error")))
                 continue
             shot = host.request(
-                "host.screenshot", {"displayId": display_id, "maxWidth": 640, "format": "png"}
+                "host.screenshot",
+                {"displayId": display_id, "maxWidth": 640, "format": "jpeg", "quality": 80},
             )
             payload = shot.get("result") or {}
             data = payload.get("dataBase64") or ""
@@ -229,12 +230,12 @@ def main() -> int:
                 raw = base64.b64decode(data)
             except ValueError:
                 raw = b""
-            is_png = raw[:8] == b"\x89PNG\r\n\x1a\n"
-            shots.append({"display": display_id, "bytes": len(raw), "png": is_png})
+            is_jpeg = raw[:2] == b"\xff\xd8" and raw[-2:] == b"\xff\xd9"
+            shots.append({"display": display_id, "bytes": len(raw), "jpeg": is_jpeg})
             check(
                 report,
                 f"view.screenshot[{display_id}]",
-                bool(shot.get("ok")) and is_png and payload.get("format") == "png",
+                bool(shot.get("ok")) and is_jpeg and payload.get("format") == "jpeg",
                 f"{len(raw)} bytes, format={payload.get('format')}",
             )
             host.request("host.stop")
@@ -288,8 +289,18 @@ def main() -> int:
         )
 
         mid_shot = host.request("host.screenshot", {"maxWidth": 640, "format": "png"})
-        mid_data = (mid_shot.get("result") or {}).get("dataBase64") or ""
-        check(report, "control.screenshot", bool(mid_data), f"{len(mid_data)} base64 chars")
+        mid_payload = mid_shot.get("result") or {}
+        mid_data = mid_payload.get("dataBase64") or ""
+        try:
+            mid_raw = base64.b64decode(mid_data) if mid_data else b""
+        except ValueError:
+            mid_raw = b""
+        check(
+            report,
+            "control.screenshot_png",
+            mid_raw[:8] == b"\x89PNG\r\n\x1a\n" and mid_payload.get("format") == "png",
+            f"{len(mid_raw)} bytes, format={mid_payload.get('format')}",
+        )
 
         released = host.request("host.releaseAll")
         result = released.get("result") or {}

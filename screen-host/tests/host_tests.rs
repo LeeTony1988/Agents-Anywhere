@@ -330,3 +330,60 @@ fn input_batches_are_rate_limited_to_120_per_second() {
         "got: {overflow_json}"
     );
 }
+
+#[test]
+fn screenshot_returns_jpeg_when_asked_and_is_smaller_than_png() {
+    let (mut host, _log) = make_host2();
+    let jpeg = host.handle_request(
+        1,
+        Method::HostScreenshot,
+        &serde_json::json!({"maxWidth": 320, "format": "jpeg", "quality": 80}),
+    );
+    let png = host.handle_request(
+        2,
+        Method::HostScreenshot,
+        &serde_json::json!({"maxWidth": 320, "format": "png"}),
+    );
+    let HostControlMessage::Response(jpeg) = jpeg else {
+        panic!("expected response");
+    };
+    let HostControlMessage::Response(png) = png else {
+        panic!("expected response");
+    };
+    let jpeg = jpeg.result.expect("jpeg result");
+    let png = png.result.expect("png result");
+
+    assert_eq!(jpeg["format"], "jpeg");
+    assert_eq!(jpeg["width"], png["width"]);
+    assert_eq!(jpeg["height"], png["height"]);
+
+    let jpeg_bytes = base64_decode(jpeg["dataBase64"].as_str().unwrap());
+    let png_bytes = base64_decode(png["dataBase64"].as_str().unwrap());
+    assert_eq!(&jpeg_bytes[..2], &[0xFF, 0xD8], "JPEG SOI marker");
+    assert_eq!(
+        &jpeg_bytes[jpeg_bytes.len() - 2..],
+        &[0xFF, 0xD9],
+        "JPEG EOI"
+    );
+    assert!(
+        jpeg_bytes.len() * 2 < png_bytes.len(),
+        "jpeg {} should be much smaller than png {}",
+        jpeg_bytes.len(),
+        png_bytes.len()
+    );
+}
+
+#[test]
+fn screenshot_format_falls_back_to_png_for_unknown_values() {
+    let (mut host, _log) = make_host2();
+    let resp = host.handle_request(
+        1,
+        Method::HostScreenshot,
+        &serde_json::json!({"maxWidth": 160, "format": "webp"}),
+    );
+    let HostControlMessage::Response(r) = resp else {
+        panic!("expected response");
+    };
+    let result = r.result.expect("screenshot result");
+    assert_eq!(result["format"], "png");
+}
