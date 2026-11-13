@@ -62,6 +62,20 @@ $env:AGENT_CONNECTOR_REMOTE_DESKTOP_SYNTHETIC_CAPTURE = "1"
 `server/scripts/e2e_full_chain.py --browser` 会同时设置这两个变量，并断言浏览器里的
 `<video>` 真的解出了 640×360、`readyState=4` 的画面。
 
+## 手动探测输入与截图
+
+`scripts/probe-input.ps1` 把一段固定的 NDJSON（start → controlGrant → input → screenshot →
+releaseAll → shutdown）喂给一个真实的 host 进程，并打印它返回的每一帧，用来在真机上确认输入被接受、
+没有残留按键：
+
+```powershell
+.\scripts\probe-input.ps1 -Synthetic     # 没有交互式桌面时用合成采集
+.\scripts\probe-input.ps1                 # 真桌面
+```
+
+2026-11-13 在合成采集下实测：`appliedSeq=4`、screenshot 返回 JPEG base64、`releaseAll` 报出
+`releasedKeys: ["KeyA"]`、shutdown 后状态为 `stopped`。
+
 ## 端到端验证（host + LiveKit）
 
 `scripts/e2e-livekit.py` 用真实的 host 二进制驱动一次会话，断言 `hello`（含契约要求的
