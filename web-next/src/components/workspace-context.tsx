@@ -44,6 +44,7 @@ import {
 import { sortSessionViews } from "@/components/session/session-list-order"
 import { useSessionCreation } from "@/components/session/use-session-creation"
 import { isApiError } from "@/lib/api/errors"
+import { resolveAppPage, type AppPage } from "@/lib/app-page"
 
 // ─── Panel / page types ───────────────────────────────────────
 
@@ -63,7 +64,7 @@ export type PanelMode = "docked" | "floating" | "closed"
  *   device/:id                   →  #/device/conn-3
  *   device/:id/remote            →  #/device/conn-3/remote
  */
-export type AppPage = "home" | "session" | "settings" | "admin" | "mobile-connections" | "tokens-anywhere" | "device" | "device-remote"
+export type { AppPage } from "@/lib/app-page"
 
 export type WorkspaceSessionView = DemoSessionView & {
   projectId?: string | null
@@ -1425,8 +1426,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   // ── Derived route fields ──────────────────────────────────
 
-  const validPages: AppPage[] = ["home", "session", "settings", "admin", "mobile-connections", "tokens-anywhere", "device"]
-  const page: AppPage = validPages.includes(route.page as AppPage) ? (route.page as AppPage) : "home"
+  // `device-remote` used to be missing from this allow-list, so opening the
+  // remote desktop route silently fell back to the home composer.
+  const page: AppPage = resolveAppPage(route.page)
 
   const routeSessionId = route.page === "session" ? route.sessionId : null
   const activeSessionId = routeSessionId ? resolveSessionAlias(routeSessionId, sessionAliases) : null
