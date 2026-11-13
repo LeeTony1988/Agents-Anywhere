@@ -1036,3 +1036,20 @@ def test_start_rpc_carries_a_deadline_below_the_rpc_timeout() -> None:
     assert 1 <= deadline <= 300_000
     # Below the RPC timeout (10 s) so the Connector gives up before we do.
     assert deadline < 10_000
+
+def test_host_info_reports_an_outdated_connector() -> None:
+    """An old Connector (no `remoteDesktop.hostInfo`) reads as connector_outdated."""
+
+    service, _, requester, _, _, _ = _service(settings=_settings())
+    requester.fail_codes["remoteDesktop.hostInfo"] = "method_not_found"
+    info = asyncio.run(service.get_host_info("conn_1", "user_1"))
+    view = next(
+        item
+        for item in info["capabilities"]
+        if item["capabilityId"] == "connector.remote_desktop.view"
+    )
+    assert view["supported"] is False
+    assert view["available"] is False
+    assert view["unavailableReason"] == "connector_outdated"
+    # The client is told why it cannot watch instead of seeing "offline".
+    assert info["host"]["supported"] is False
