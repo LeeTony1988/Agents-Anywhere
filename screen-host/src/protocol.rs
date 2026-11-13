@@ -21,6 +21,8 @@ pub const ERR_INVALID_PARAMS: &str = "rd_invalid_params";
 pub const ERR_NOT_CONTROLLER: &str = "rd_not_controller";
 pub const ERR_CAPTURE_FAILED: &str = "rd_capture_failed";
 pub const ERR_UNSUPPORTED: &str = "rd_unsupported";
+/// Input arrived faster than the 120 events/second budget (decisions §2.4).
+pub const ERR_RATE_LIMITED: &str = "rd_rate_limited";
 
 /// One frame on the bidirectional stdio control channel.
 #[derive(Debug, Clone, Serialize, Deserialize)]

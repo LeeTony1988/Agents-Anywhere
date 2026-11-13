@@ -302,3 +302,31 @@ fn input_sink_is_send() {
     assert_send::<Box<dyn InputSink>>();
     assert_send::<Box<dyn CaptureSource>>();
 }
+
+#[test]
+fn input_batches_are_rate_limited_to_120_per_second() {
+    let (mut host, _log) = make_host2();
+    host.handle_request(1, Method::HostInput, &serde_json::json!({"events": []}));
+    // 120 events in one batch fit the rolling one-second budget.
+    let events: Vec<serde_json::Value> = (1..=120)
+        .map(|seq| serde_json::json!({"v":1,"seq":seq,"t":"key","a":"down","code":"KeyA"}))
+        .collect();
+    let first = host.handle_request(2, Method::HostInput, &serde_json::json!({"events": events}));
+    let first_json = serde_json::to_string(&first).unwrap();
+    assert!(
+        first_json.contains("\"appliedSeq\":120"),
+        "got: {first_json}"
+    );
+
+    // The next event in the same second is rejected instead of being injected.
+    let overflow = host.handle_request(
+        3,
+        Method::HostInput,
+        &serde_json::json!({"events": [{"v":1,"seq":121,"t":"key","a":"up","code":"KeyA"}]}),
+    );
+    let overflow_json = serde_json::to_string(&overflow).unwrap();
+    assert!(
+        overflow_json.contains("rd_rate_limited"),
+        "got: {overflow_json}"
+    );
+}

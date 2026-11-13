@@ -12,12 +12,15 @@ use crate::config::{Quality, QualityPatch, DEFAULT_MAX_WIDTH};
 use crate::input::{InputEvent, InputSink};
 use crate::protocol::{
     event, response_err, response_ok, EventKind, HostControlMessage, Method, ERR_CAPTURE_FAILED,
-    ERR_INVALID_PARAMS, ERR_NOT_CONTROLLER,
+    ERR_INVALID_PARAMS, ERR_NOT_CONTROLLER, ERR_RATE_LIMITED,
 };
 use crate::publish::{MediaGrant, Publisher, Stats};
 
 #[cfg(windows)]
 use crate::overlay::OverlayHandle;
+
+/// Maximum number of input events the host applies per rolling second.
+pub const MAX_INPUT_EVENTS_PER_SECOND: usize = 120;
 
 /// Host lifecycle states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +80,8 @@ pub struct Host {
     publisher: Arc<Mutex<Box<dyn Publisher>>>,
     stream_stop: Option<Arc<AtomicBool>>,
     stream_thread: Option<JoinHandle<()>>,
+    /// Timestamps of recently applied input events, for the 120 events/s budget.
+    input_window: std::collections::VecDeque<std::time::Instant>,
     #[cfg(windows)]
     overlay: Option<OverlayHandle>,
     sink: Box<dyn InputSink>,
@@ -107,6 +112,7 @@ impl Host {
             publisher: Arc::new(Mutex::new(publisher)),
             stream_stop: None,
             stream_thread: None,
+            input_window: std::collections::VecDeque::new(),
             #[cfg(windows)]
             overlay: None,
             sink,
@@ -384,6 +390,13 @@ impl Host {
 
         let mut applied_seq: u64 = 0;
         for raw in events {
+            if !self.allow_input_at(std::time::Instant::now()) {
+                return response_err(
+                    id,
+                    ERR_RATE_LIMITED,
+                    format!("input rate limit exceeded (max {MAX_INPUT_EVENTS_PER_SECOND}/s)"),
+                );
+            }
             let event = match InputEvent::from_json(raw) {
                 Ok(ev) => ev,
                 Err(e) => return response_err(id, ERR_INVALID_PARAMS, e.to_string()),
@@ -397,6 +410,25 @@ impl Host {
             }
         }
         response_ok(id, serde_json::json!({"appliedSeq": applied_seq}))
+    }
+
+    /// Sliding one-second budget for applied input events (decisions §2.4).
+    ///
+    /// Pointer motion normally travels on the lossy `aa.pointer` channel, so a
+    /// client that floods `host.input` is either misbehaving or misconfigured.
+    /// Rejecting the batch is safer than injecting thousands of events.
+    fn allow_input_at(&mut self, now: std::time::Instant) -> bool {
+        while let Some(oldest) = self.input_window.front() {
+            if now.duration_since(*oldest) < std::time::Duration::from_secs(1) {
+                break;
+            }
+            self.input_window.pop_front();
+        }
+        if self.input_window.len() >= MAX_INPUT_EVENTS_PER_SECOND {
+            return false;
+        }
+        self.input_window.push_back(now);
+        true
     }
 
     /// Pull frames from a second capture source and hand them to the publisher.
