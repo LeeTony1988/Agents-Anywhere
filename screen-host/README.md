@@ -70,19 +70,21 @@ $env:AGENT_CONNECTOR_REMOTE_DESKTOP_SYNTHETIC_CAPTURE = "1"
 
 需要 JPEG 时再引入编码器；在那之前，UI 侧不要假设 `format=jpeg` 一定返回 JPEG。
 
-## 手动探测输入与截图
+## 验收脚本与手动探测
 
-`scripts/probe-input.ps1` 把一段固定的 NDJSON（start → controlGrant → input → screenshot →
-releaseAll → shutdown）喂给一个真实的 host 进程，并打印它返回的每一帧，用来在真机上确认输入被接受、
-没有残留按键：
+`scripts/acceptance.py` 是**真机验收**用的自动部分：列显示器 → 每个显示器起一次 view 会话并截图 →
+一次 control 会话跑指针网格/滚轮/修饰键/中文文本 → releaseAll → stop → shutdown，逐项打印
+PASS/FAIL，最后附一份人工确认清单（多显示器落点、4K 缩放、热插拔、中文输入、stuck-key、锁屏诊断）：
 
-```powershell
-.\scripts\probe-input.ps1 -Synthetic     # 没有交互式桌面时用合成采集
-.\scripts\probe-input.ps1                 # 真桌面
+```bash
+python scripts/acceptance.py                 # 真桌面
+python scripts/acceptance.py --synthetic     # 没有交互式桌面时
+python scripts/acceptance.py --json report.json
 ```
 
-2026-11-13 在合成采集下实测：`appliedSeq=4`、screenshot 返回 JPEG base64、`releaseAll` 报出
-`releasedKeys: ["KeyA"]`、shutdown 后状态为 `stopped`。
+2026-11-13 合成采集下实测全部 PASS（`appliedSeq=13`、截图 PNG 230 KB、
+`releaseAll` 无残留、退出码 0）。`scripts/probe-input.ps1` 保留为更短的手动探测（同样会打印
+`appliedSeq` 与 `releasedKeys`）。
 
 ## 端到端验证（host + LiveKit）
 
