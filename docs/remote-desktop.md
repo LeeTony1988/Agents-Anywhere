@@ -778,11 +778,18 @@ AGENT_SERVER_METRICS_TOKEN=<scrape token>   # 可选；设置后要求 Authoriza
 | `server/scripts/e2e_media_plane.py` | Server 签发的 host grant 被真实 host 接受，SFU 侧看到 `host:<connectorId>` 与名为 `screen` 的 `SCREEN_SHARE` VP8 轨（`simulcast=false`），会话结束后 `delete_room` 成功 | 同上；用 `server/.venv` 的 Python 运行 |
 | `server/scripts/e2e_full_chain.py` | **整链**：真实 Server（PostgreSQL + 迁移）↔ 真实 Connector 进程 ↔ 真实 host ↔ 真实 LiveKit。走完配对 → 连接上线 → 设备设置 → 创建 control 会话（`starting→live`）→ SFU 看到 host 的 `screen` 轨 → 结束会话 → 房间清空；第二阶段把设备改成「必须本机确认」，验证没有交互界面时创建请求返回 `permission_denied`、会话记为 `consent_denied`、房间无参与者；第三阶段开一个 view 会话并连真控制面 WebSocket，确认收到 `remote_desktop.subscribed` 与 `remote_desktop.session.updated`；第四阶段让第二个客户端加入、夺取控制权、被抢回、再释放，确认 `controller` 字段随之变化且被顶掉的客户端收到 `remote_desktop.control.revoked` | `livekit-server --dev`；`AGENT_E2E_DB_URL` 指向名字以 `_e2e` 结尾的库（脚本拒绝其他名字）；`--fresh` 会先删库重建，用来确认可复现 |
 
-两个脚本都在 2026-11-13 本地通过。整链脚本加 `--web-hold-seconds` 后会把会话挂在那里，同时把
-`web-next` 的静态导出通过 `AGENT_SERVER_STATIC_DIR` 由同一个 Server 提供，就可以用真实浏览器打开
-`#/device/<connectorId>/remote` 验证：页面渲染、`remote-desktop` 请求成功、「申请控制」后显示控制中
-与租约倒计时。这条路径暴露过一个只在真浏览器里才出现的问题（`device-remote` 不在页面白名单里，
-路由被回退成首页），已修复并补了回归测试。注意 `cargo test`/`cargo build`（不带 `--features livekit`）会覆盖
+两个脚本都在 2026-11-13 本地通过。整链脚本还支持把 Web 客户端一起验证：
+
+```bash
+cd web-next && NEXT_OUTPUT=export yarn build
+AGENT_E2E_STATIC_DIR=$PWD/web-next/out python -X utf8 server/scripts/e2e_full_chain.py --fresh --browser
+```
+
+`--browser` 会启动本机 Chrome/Edge 无头实例（CDP 直连，不依赖 Playwright），预置登录态后打开
+`#/device/<connectorId>/remote`，断言页面渲染出「远程桌面」、点「申请控制」后出现「控制中」，并检查
+LiveKit 房间里多出 `viewer:` 参与者。`--web-hold-seconds N` 则只是把会话挂着，方便人手点一遍。
+这条路径暴露过一个只在真浏览器里才出现的问题（`device-remote` 不在页面白名单里，路由被回退成
+首页），已在 Web 与 Desktop 两端修复并补了回归测试。注意 `cargo test`/`cargo build`（不带 `--features livekit`）会覆盖
 `target/debug` 里的二进制，跑之前重新执行一次 `build-livekit.ps1`。
 
 ## 12. 实施计划
