@@ -15,8 +15,8 @@ use aa_screen_host::config::HostConfig;
 use aa_screen_host::host::{EventSink, Host};
 use aa_screen_host::input;
 use aa_screen_host::protocol::{
-    event, protocol_error, Arch, EventKind, Hello, HostControlMessage, Platform, Request,
-    ERR_PROTOCOL, PROTOCOL_VERSION,
+    protocol_error, Arch, Hello, HostControlMessage, Platform, Request, ERR_PROTOCOL,
+    PROTOCOL_VERSION,
 };
 use aa_screen_host::publish;
 
@@ -256,13 +256,9 @@ impl App {
                     shutdown.reason.as_deref().unwrap_or("unspecified")
                 );
                 self.host.shutdown();
-                write_frame(
-                    out,
-                    &event(
-                        EventKind::State,
-                        serde_json::json!({"sessionId": self.host.session_id, "state": "stopped"}),
-                    ),
-                );
+                // `Host::shutdown` already emits the terminal `stopped` state
+                // when a session was running; emitting another one here would
+                // duplicate the last state event.
                 return Some(0);
             }
             other => {

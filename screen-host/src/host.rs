@@ -221,11 +221,28 @@ impl Host {
         self.state = HostState::Starting;
         self.emit_state(&session_id, "starting");
 
-        let display = self
-            .capture
-            .displays()
-            .into_iter()
-            .find(|display| display.id == self.display_id);
+        let displays = self.capture.displays();
+        let requested = self.display_id.clone();
+        let display = displays
+            .iter()
+            .find(|display| display.id == requested)
+            .cloned()
+            .or_else(|| {
+                // "0" (and an empty id) mean "the first display": the contract
+                // examples and the Connector's default use "0", while Windows
+                // enumerates `\\.\DISPLAY1` as id "1".
+                if requested.is_empty() || requested == "0" {
+                    displays.first().cloned()
+                } else {
+                    None
+                }
+            });
+        if let Some(resolved) = &display {
+            if resolved.id != self.display_id {
+                info!("display {requested:?} resolved to {:?}", resolved.id);
+                self.display_id = resolved.id.clone();
+            }
+        }
         let stream_width = display
             .as_ref()
             .map(|display| display.width.min(self.quality.max_width))

@@ -42,6 +42,23 @@ cargo run -- --stdio       # 默认：hello 帧 + stdin 逐行处理
 cargo run -- --once        # 只处理一行请求后优雅退出
 ```
 
+## 端到端验证（host + LiveKit）
+
+`scripts/e2e-livekit.py` 用真实的 host 二进制驱动一次会话，断言 `hello`（含契约要求的
+`arch=x86_64`）、`host.start` 被接受、`starting → running → stopping → stopped` 的状态序列、
+以及退出码 0：
+
+```bash
+livekit-server --dev --bind 127.0.0.1           # 与脚本里的 devkey/secret 一致
+python -X utf8 screen-host/scripts/e2e-livekit.py screen-host/target/debug/aa-screen-host.exe
+```
+
+采集用 Windows stub（不带 `wgc` feature），所以能在 Session 0 跑；媒体面是真实的：
+LiveKit 日志里能看到 `host:conn_e2e` 的 `onMediaTrack`（VP8 video）。2026-11-13 本地实测通过。
+
+已知噪音：停止会话时 LiveKit SDK 可能打印一条 `failed to negotiate the publisher … state: closed`，
+是关闭房间时仍在进行的重协商，不影响发布结果与退出码。
+
 ## 打包
 
 ```powershell

@@ -69,6 +69,10 @@ pub enum Platform {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Arch {
+    // The contract (`host-facts`/`hello`) uses `x86_64`, not `x8664`; the
+    // Connector also normalizes the old spelling, but the host must emit the
+    // contract value itself.
+    #[serde(rename = "x86_64")]
     X8664,
     Aarch64,
     Unknown,
