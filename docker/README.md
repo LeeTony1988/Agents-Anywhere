@@ -64,6 +64,28 @@ Reverse proxy notes: keep WebSocket `Upgrade`/`Connection` headers for
 and allow request bodies up to the screenshot limit. TURN/TLS can share port 443
 with a layer-4 proxy when the corporate network only allows 443.
 
+Remote desktop metrics are off by default. To scrape them:
+
+```bash
+AGENT_SERVER_METRICS_ENABLED=true \
+AGENT_SERVER_METRICS_TOKEN=change-me-scrape-token \
+docker compose -f docker/docker-compose.postgres.yml up -d server-next
+```
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: agents-anywhere
+    authorization: { credentials: change-me-scrape-token }
+    static_configs:
+      - targets: ["server:8000"]
+    metrics_path: /api/v2/metrics
+```
+
+The endpoint returns `text/plain; version=0.0.4`; counters are per worker and
+carry an `instance` label, so aggregate with `sum by (...)` when the Server runs
+several workers. LiveKit exposes its own metrics on `prometheus_port: 6789`.
+
 ## Development Image
 
 `docker/Dockerfile.dev` starts the FastAPI backend and the Next.js dev server in

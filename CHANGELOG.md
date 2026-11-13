@@ -26,7 +26,8 @@
 - 远程桌面默认关闭，开启观看、控制和无人值守都需要在设备本机确认；共享期间设备上常驻「正在共享屏幕」提示，可随时一键结束。（[f885512c](https://github.com/anywhere-labs/Agents-Anywhere/commit/f885512c)）
 - 同一台设备同时只保留一个远程桌面会话，多个客户端可以一起观看，控制权按租约在客户端之间转移；断线后 90 秒内可以恢复，超时自动结束并保留审计记录。（[f885512c](https://github.com/anywhere-labs/Agents-Anywhere/commit/f885512c)）
 - Connector 会拉起并监管独立的屏幕主机进程，Connector 退出或崩溃时不会留下继续采屏的孤儿进程。
-- Desktop 在窗口顶部显示本机正在被远程观看或控制的提示，并可直接打开对应的远程桌面页面。（[9cdde9a5](https://github.com/anywhere-labs/Agents-Anywhere/commit/9cdde9a5)）（[f885512c](https://github.com/anywhere-labs/Agents-Anywhere/commit/f885512c)）
+- Desktop 在窗口顶部显示本机正在被远程观看或控制的提示，可以直接打开对应的远程桌面页面，也可以直接结束这次共享；窗口不在前台时，屏幕右下角常驻一个悬浮提示，macOS 菜单栏也会显示共享状态。（[9cdde9a5](https://github.com/anywhere-labs/Agents-Anywhere/commit/9cdde9a5)、[618f7b2a](https://github.com/anywhere-labs/Agents-Anywhere/commit/618f7b2a)）
+- 部署者可以打开 `AGENT_SERVER_METRICS_ENABLED`，从 `GET /api/v2/metrics` 抓取远程桌面的活跃会话数、会话时长、错误数和帧率/码率/丢包/延迟指标接入 Prometheus；默认关闭，可另设 `AGENT_SERVER_METRICS_TOKEN` 保护抓取接口。（[a053d3f7](https://github.com/anywhere-labs/Agents-Anywhere/commit/a053d3f7)）
 
 ### 会话创建与消息交付
 
