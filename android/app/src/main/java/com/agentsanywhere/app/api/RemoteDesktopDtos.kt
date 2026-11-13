@@ -566,7 +566,7 @@ private fun JSONObject.remoteDesktopQuality(): RemoteDesktopQuality {
     )
 }
 
-private fun JSONObject.remoteDesktopStats(): RemoteDesktopStats {
+internal fun JSONObject.remoteDesktopStats(): RemoteDesktopStats {
     return RemoteDesktopStats(
         fps = optNullableDouble("fps") ?: 0.0,
         bitrateKbps = optNullableDouble("bitrateKbps") ?: 0.0,

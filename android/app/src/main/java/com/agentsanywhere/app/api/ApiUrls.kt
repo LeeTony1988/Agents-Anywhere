@@ -74,6 +74,30 @@ internal fun webSocketApiUrl(serverUrl: String, path: String): String {
     }
 }
 
+/**
+ * Control-plane socket of one remote desktop session:
+ * `WS .../remote-desktop/sessions/{id}/ws?ticket=...&cursor=...`.
+ *
+ * The ticket is one-time and 60 s, so a reconnect must pass a freshly issued one. [cursor]
+ * is the decimal cursor from `remote_desktop.subscribed`; when it is null or blank the
+ * parameter is omitted and the Server starts from the beginning (or from its live state).
+ */
+internal fun remoteDesktopSessionWebSocketUrl(
+    serverUrl: String,
+    sessionId: String,
+    ticket: String,
+    cursor: String? = null,
+): String {
+    val query = buildString {
+        append("ticket=").append(ticket.urlEncode())
+        cursor?.takeIf { it.isNotBlank() }?.let { append("&cursor=").append(it.urlEncode()) }
+    }
+    return webSocketApiUrl(
+        serverUrl,
+        "/remote-desktop/sessions/${sessionId.urlEncode()}/ws?$query",
+    )
+}
+
 internal fun normalizeServerOrigin(serverUrl: String): String? {
     val trimmed = serverUrl.trim().trimEnd('/')
     if (trimmed.isBlank()) return null
