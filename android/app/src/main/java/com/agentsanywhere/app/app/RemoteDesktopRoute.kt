@@ -14,6 +14,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.collectAsState
 import com.agentsanywhere.app.R
 import com.agentsanywhere.app.api.RemoteDesktopApi
+import com.agentsanywhere.app.ui.screens.remotedesktop.saveAndShareScreenshot
+import com.agentsanywhere.app.api.RemoteDesktopScreenshotFormat
+import com.agentsanywhere.app.api.RemoteDesktopScreenshotRequest
 import com.agentsanywhere.app.api.RemoteDesktopHostInfo
 import com.agentsanywhere.app.api.RemoteDesktopMode
 import com.agentsanywhere.app.api.RemoteDesktopUnavailableReason
@@ -70,6 +73,7 @@ internal fun RemoteDesktopRoute(
     var hostInfo by remember(connectorId) { mutableStateOf<RemoteDesktopHostInfo?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     var leaving by remember { mutableStateOf(false) }
+    var screenshotBusy by remember { mutableStateOf(false) }
 
     // The capability probe runs before (and independently of) the session so the screen can
     // explain why a host cannot be watched instead of failing on the media join.
@@ -106,6 +110,33 @@ internal fun RemoteDesktopRoute(
             notice = context.getString(R.string.remote_desktop_control_revoked)
         }
         wasControlling = controlling
+    }
+
+    fun captureScreenshot() {
+        if (screenshotBusy) return
+        val activeSession = (sessionState as? RemoteDesktopSessionState.Live)?.session
+            ?: (sessionState as? RemoteDesktopSessionState.Reconnecting)?.session
+            ?: return
+        val id = connectorId ?: return
+        screenshotBusy = true
+        scope.launch {
+            runCatching {
+                val shot = remoteDesktopApi.screenshot(
+                    serverUrl,
+                    authorizationToken,
+                    activeSession.id,
+                    RemoteDesktopScreenshotRequest(
+                        format = RemoteDesktopScreenshotFormat.Jpeg,
+                        maxWidth = 1920,
+                        quality = 85,
+                    ),
+                )
+                saveAndShareScreenshot(context, id, shot)
+            }.onFailure { error ->
+                notice = error.message ?: context.getString(R.string.remote_desktop_screenshot_failed)
+            }
+            screenshotBusy = false
+        }
     }
 
     fun leave() {
@@ -150,6 +181,8 @@ internal fun RemoteDesktopRoute(
         onReleaseControl = {
             scope.launch { controller.releaseControl() }
         },
+        onScreenshot = { captureScreenshot() },
+        screenshotBusy = screenshotBusy,
         onQualityChange = { preset ->
             quality = preset
             // "Auto" sends no knobs at all: the Server keeps the host's own defaults.

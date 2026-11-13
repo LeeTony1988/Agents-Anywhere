@@ -852,4 +852,7 @@
     <string name="remote_desktop_error_connector_not_found">The device no longer exists.</string>
     <string name="remote_desktop_error_unknown">Remote desktop failed.</string>
     <string name="remote_desktop_control_revoked">Someone else took over control.</string>
+    <string name="remote_desktop_screenshot">Screenshot</string>
+    <string name="remote_desktop_screenshot_share">Share screenshot</string>
+    <string name="remote_desktop_screenshot_failed">Could not capture the screen</string>
 </resources>

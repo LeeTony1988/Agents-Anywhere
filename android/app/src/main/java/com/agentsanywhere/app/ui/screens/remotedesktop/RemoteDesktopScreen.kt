@@ -139,6 +139,8 @@ fun RemoteDesktopScreen(
     onEnd: () -> Unit,
     onTakeControl: () -> Unit,
     onReleaseControl: () -> Unit,
+    onScreenshot: () -> Unit,
+    screenshotBusy: Boolean = false,
     onQualityChange: (RemoteDesktopQualityPreset) -> Unit,
     onNoticeShown: () -> Unit,
     onPauseInput: () -> Unit = {},
@@ -251,6 +253,8 @@ fun RemoteDesktopScreen(
                                 leaseSeconds = leaseSeconds,
                                 onTakeControl = onTakeControl,
                                 onReleaseControl = onReleaseControl,
+                                onScreenshot = onScreenshot,
+                                screenshotBusy = screenshotBusy,
                             )
                         }
                         RemoteDesktopModifierBar(

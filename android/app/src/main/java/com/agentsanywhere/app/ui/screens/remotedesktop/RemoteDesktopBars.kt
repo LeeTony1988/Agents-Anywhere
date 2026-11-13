@@ -50,6 +50,7 @@ import com.agentsanywhere.app.ui.designsystem.AADropdownMenu
 import com.agentsanywhere.app.ui.designsystem.AADropdownMenuItem
 import com.agentsanywhere.app.ui.designsystem.LocalAAColors
 import com.agentsanywhere.app.ui.designsystem.noRippleClickable
+import com.composables.icons.lucide.Camera
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronLeft
 import com.composables.icons.lucide.Keyboard
@@ -274,6 +275,8 @@ internal fun RemoteDesktopControlBar(
     leaseSeconds: Int?,
     onTakeControl: () -> Unit,
     onReleaseControl: () -> Unit,
+    onScreenshot: () -> Unit,
+    screenshotBusy: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAAColors.current
@@ -319,6 +322,11 @@ internal fun RemoteDesktopControlBar(
                 .background(if (controlling) colors.subtle else colors.primaryAction)
                 .noRippleClickable(onClick = if (controlling) onReleaseControl else onTakeControl)
                 .padding(horizontal = 12.dp, vertical = 7.dp),
+        )
+        RemoteDesktopRoundButton(
+            icon = Lucide.Camera,
+            description = stringResource(R.string.remote_desktop_screenshot),
+            onClick = { if (!screenshotBusy) onScreenshot() },
         )
     }
 }

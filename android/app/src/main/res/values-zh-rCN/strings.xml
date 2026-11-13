@@ -850,4 +850,7 @@
     <string name="remote_desktop_error_connector_not_found">设备已不存在。</string>
     <string name="remote_desktop_error_unknown">远程桌面出错。</string>
     <string name="remote_desktop_control_revoked">控制权已被其他人接管。</string>
+    <string name="remote_desktop_screenshot">截图</string>
+    <string name="remote_desktop_screenshot_share">分享截图</string>
+    <string name="remote_desktop_screenshot_failed">截图失败</string>
 </resources>
