@@ -103,6 +103,7 @@
 
 ### Android
 
+- 设备详情页在设备开启远程桌面后显示「看这台设备屏幕」：可以观看工作设备屏幕，用轻点、拖动、长按、双指滚动与捏合、双击拖拽锁定操作鼠标，用悬浮修饰键和软/硬键盘输入文字，并在需要时申请或释放控制权；画面支持缩放平移、连接/重连浮层和码率/延迟显示。（[97e11c8f](https://github.com/anywhere-labs/Agents-Anywhere/commit/97e11c8f)）
 - 折叠屏展开或使用宽窗口时，可以在左侧切换项目和会话、在右侧查看消息，并按需收起侧栏；窄窗口保留手机单栏导航，切换会话或窗口宽度时保留各会话草稿和阅读位置。（[#478](https://github.com/anywhere-labs/Agents-Anywhere/pull/478)）
 
 - Desktop 设备的详情页新增「设备设置」，可以远程打开或关闭「关机时询问是否退出」。（[#596](https://github.com/anywhere-labs/Agents-Anywhere/pull/596)）
