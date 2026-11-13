@@ -33,7 +33,10 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    # Hash LF-normalised bytes: Git checks these files out with CRLF on Windows,
+    # and the manifest must stay valid on every platform (the TypeScript
+    # generator normalises the same way).
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def load_contract() -> tuple[dict[str, dict[str, Any]], Registry[Any]]:

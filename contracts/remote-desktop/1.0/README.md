@@ -113,7 +113,7 @@ uv run --with jsonschema --with referencing python contracts/remote-desktop/1.0/
 
 `validate.py` 会检查：schema 本身是合法 Draft 2020-12、`$id`/版本/方向元数据、manifest 的
 slug/path/sha256/direction、每个 schema 至少一份 valid fixture、valid 必须通过、invalid 必须被拒、
-fixtures 必须按 `<kind>/<slug>/` 组织。修改任何 schema 后必须重新生成 manifest 哈希，否则 CI 红。
+fixtures 必须按 `<kind>/<slug>/` 组织。修改任何 schema 后必须重新生成 manifest 哈希，否则 CI 红。哈希按 **LF 归一化后**的字节计算（`\r\n` → `\n`），所以在 Windows 上检出成 CRLF 也不会误报。
 
 
 ## 截图文件命名（`screenshot-naming.json`）
