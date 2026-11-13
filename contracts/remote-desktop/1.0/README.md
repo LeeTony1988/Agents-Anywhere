@@ -91,6 +91,20 @@ HTTP 错误统一：
 客户端只依赖 `code` 和 `message`；`details` 是可选补充。`rd_*` 是 Connector → Server 的内部码，
 不得出现在 HTTP 响应里。
 
+## 目录里除 schema 之外还有什么
+
+| 文件 | 作用 | 谁在读 |
+| --- | --- | --- |
+| `schemas/*.schema.json` | wire 事实源 | Server、Connector、各客户端、`validate.py` |
+| `manifest.json` | 每个 schema 的 slug/path/sha256/direction | `validate.py`、`web-next`/`desktop-workbench` 的 `generate-protocol-types.mjs` |
+| `fixtures/valid|invalid/<slug>/` | 每个 schema 的正/反例 | `validate.py`、契约测试 |
+| `pointer-frame.md` | `aa.pointer` 数据通道的 12 字节小端帧布局与 5 组十六进制向量 | screen-host 的 `RemotePointerFrame` 与其单测 |
+| `screenshot-naming.json` | 截图保存到本地的文件名规则与用例（见下） | Web、Desktop、Android 的截图测试 |
+| `validate.py` | 契约自检脚本（CI `contracts` job） | CI |
+
+`pointer-frame.md` 与 `screenshot-naming.json` 不是 wire 契约，但和契约一起版本化：改帧格式或改命名
+规则时，要同时更新这里的文档/用例和三端实现。
+
 ## 校验
 
 ```bash
