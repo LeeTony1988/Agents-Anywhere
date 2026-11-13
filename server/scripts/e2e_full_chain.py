@@ -31,6 +31,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -646,7 +647,141 @@ def main() -> int:
             return 1
         log("view session events and shutdown verified")
 
-        log("OK: full chain verified (control, consent denial, realtime socket)")
+        log("phase 4: control lease hand-over between two viewers")
+
+        status, control_created = http(
+            "POST",
+            f"{base}/remote-desktop/sessions",
+            token=token,
+            body={
+                "connectorId": connector_id,
+                "mode": "control",
+                "displayId": "0",
+                "client": {"platform": "web", "appVersion": "2.3.0"},
+            },
+        )
+        if status not in (200, 201):
+            log(f"FAIL: control session -> {status} {control_created}")
+            return 1
+        lease_session = control_created["session"]["id"]
+        first = control_created["participantId"]
+
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            status, current = http(
+                "GET", f"{base}/remote-desktop/sessions/{lease_session}", token=token
+            )
+            if status == 200 and current["session"]["state"] == "live":
+                break
+            time.sleep(1)
+        else:
+            log("FAIL: control session never became live")
+            return 1
+
+        # A second client joins the same session as a viewer.
+        status, joined = http(
+            "POST",
+            f"{base}/remote-desktop/sessions",
+            token=token,
+            body={
+                "connectorId": connector_id,
+                "mode": "view",
+                "displayId": "0",
+                "client": {"platform": "web", "appVersion": "2.3.0"},
+            },
+        )
+        if status != 200:
+            log(f"FAIL: join as viewer -> {status} {joined}")
+            return 1
+        second = joined["participantId"]
+        if second == first:
+            log("FAIL: the second client reused the first participant id")
+            return 1
+        log(f"participants: first={first} second={second}")
+
+        status, ticket = http(
+            "POST",
+            f"{base}/remote-desktop/sessions/{lease_session}/ticket",
+            token=token,
+            body={"participantId": first},
+        )
+        if status not in (200, 201):
+            log(f"FAIL: lease ticket -> {status} {ticket}")
+            return 1
+        lease_url = (
+            f"ws://127.0.0.1:{port}/api/v2/remote-desktop/sessions/{lease_session}/ws"
+            f"?ticket={ticket['ticket']}"
+        )
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            collector = pool.submit(lambda: asyncio.run(drain_socket(lease_url, seconds=10)))
+            time.sleep(1.5)
+
+            status, taken = http(
+                "POST",
+                f"{base}/remote-desktop/sessions/{lease_session}/take-control",
+                token=token,
+                body={"participantId": second},
+            )
+            log(f"take control -> {status}")
+            if status not in (200, 202):
+                log(f"FAIL: take control -> {status} {taken}")
+                return 1
+            lease_after_take = taken["session"].get("controller")
+            if lease_after_take != f"viewer:{second}":
+                log(f"FAIL: controller is {lease_after_take!r}, expected viewer:{second}")
+                return 1
+
+            time.sleep(1.5)
+            status, back = http(
+                "POST",
+                f"{base}/remote-desktop/sessions/{lease_session}/take-control",
+                token=token,
+                body={"participantId": first},
+            )
+            if status not in (200, 202):
+                log(f"FAIL: take control back -> {status} {back}")
+                return 1
+            lease_back = back["session"].get("controller")
+            if lease_back != f"viewer:{first}":
+                log(f"FAIL: controller is {lease_back!r} after takeover")
+                return 1
+
+            status, released = http(
+                "POST",
+                f"{base}/remote-desktop/sessions/{lease_session}/release-control",
+                token=token,
+                body={},
+            )
+            if status != 200:
+                log(f"FAIL: release control -> {status} {released}")
+                return 1
+            if released["session"].get("controller"):
+                log("FAIL: controller was not cleared by release_control")
+                return 1
+            events = collector.result(timeout=40)
+
+        revoked = [
+            event
+            for event in events
+            if event.get("type") == "remote_desktop.control.revoked"
+        ]
+        log(f"revocation events: {len(revoked)}")
+        if not revoked:
+            log("FAIL: the displaced controller never received control.revoked")
+            return 1
+
+        status, ended_lease = http(
+            "POST",
+            f"{base}/remote-desktop/sessions/{lease_session}/end",
+            token=token,
+            body={"reason": "client_ended"},
+        )
+        if status not in (200, 201):
+            log(f"FAIL: end lease session -> {status} {ended_lease}")
+            return 1
+        log("control hand-over verified")
+
+        log("OK: full chain verified (control, consent denial, realtime socket, lease hand-over)")
         return 0
     finally:
         for process in (connector_process, server_process):
