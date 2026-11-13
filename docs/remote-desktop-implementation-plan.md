@@ -57,7 +57,7 @@
 
 | 条目 | 已做到 | 缺口 |
 | --- | --- | --- |
-| RD-P1-16 集成测试 | 单 worker + 真实 PostgreSQL 的远程桌面/设备设置/架构边界 130+ 用例通过；`test_remote_desktop_maintenance_db.py` 用两个独立的 maintenance loop 服务实例跑同一个 PG，证明过期会话只被推进一次、结束原因不被覆盖、活跃列表只含未结束会话 | 仍是同进程内的两个实例，没有真正两个 Server 进程 + Redis 的端到端集成 |
+| RD-P1-16 集成测试 | 单 worker + 真实 PostgreSQL 的远程桌面/设备设置/架构边界 130+ 用例通过；`test_remote_desktop_maintenance_db.py` 用两个独立的 maintenance loop 服务实例跑同一个 PG，证明过期会话只被推进一次、结束原因不被覆盖；`server/scripts/e2e_full_chain.py` 跑通真实 Server + 真实 Connector + 真实 host + 真实 LiveKit 的整链（配对 → 创建 → live → SFU 见 `screen` 轨 → 结束） | 仍是单 Server 进程（没有 Redis 多 worker 真实部署），也没有浏览器/手机客户端参与 |
 | RD-P2-03 host 定位/校验 | 按 `screen-host/<platform>-<arch>/` 解析并对开发目录回退；`scripts/package.ps1` 写出 `manifest.json`（platform/arch/version/sha256/features），Connector 校验 sha256，篡改或不匹配时以 `rd_host_integrity` 拒绝启动；`hostPath` 只来自本地配置 | 没有 Authenticode / codesign / teamID 校验（只有哈希完整性） |
 | RD-P2-04 Supervisor | 三路 PIPE、4 MiB 限制、env allowlist、Windows Job Object、POSIX guardian、ping 3 次重启、退避限流都有实现与单测 | 「kill host / kill Connector / 注销用户」三场景未在真机矩阵里验证；stderr 轮转未做 |
 | RD-P2-05 退出清理 | `run_forever` finally 调用 `aclose()` → release-all/stop/terminate；stdin EOF 与 shutdown 帧已覆盖 | Ctrl-C/SIGTERM 信号路径未接（依赖 Connector 进程退出时的 finally） |
@@ -68,7 +68,7 @@
 | RD-P2-12 Windows 输入 | `SendInput` 鼠标/键盘/Unicode、VK 映射、pressed 集合 + release-all 有实现与单测；`host.input` 有 120 事件/秒滑动窗口限流（超出返回 `rd_rate_limited`）；指针坐标按会话捕获的显示器换算到虚拟桌面绝对坐标（`MOUSEEVENTF_VIRTUALDESK`），多显示器算术有纯函数单测 | 真机 stuck-key/拖拽释放、双屏实机点选精度未验收 |
 | RD-P2-13 本机确认与可见性 | host 常驻 topmost 提示窗（点击结束共享，主循环优雅退出）；Connector 可选原生 MessageBox 确认；Desktop 窗口内提示条 + always-on-top 悬浮窗 + macOS 菜单栏项 | 确认/拒绝/超时/无人值守组合矩阵未在真机跑过；macOS 菜单栏项未在 macOS 上验证 |
 | RD-P2-14 打包与签名 | `scripts/package.ps1` 产出 `dist/<platform>-<arch>/aa-screen-host[.exe]` + `manifest.json`；`scripts/build-livekit.ps1` 与 `.cargo/config.toml` 固定 libwebrtc/CRT 构建方式；`desktop-workbench/scripts/prepare-screen-host.mjs` 把 `screen-host/dist` 复制成 `resources/screen-host/`（缺失时写占位 README，打包不失败），已接入 `pack` 与 `dist` | 未签名/公证，DSH 插件 bundle 与 CLI 下载器未接，也没有干净 VM 安装验收 |
-| RD-P2-16 host 端到端 | 真实 `aa-screen-host.exe` 的 start/info/screenshot/releaseAll/stop 联调通过；`scripts/e2e-livekit.py` 用真实二进制连真实 `livekit-server`，断言 `hello`（`arch=x86_64`）、start 被接受、`starting→running→stopping→stopped`、退出码 0，LiveKit 侧可见 `host:conn_e2e` 的 VP8 `onMediaTrack` | 采集是 Session 0 的 stub，不是真实桌面；没有 Server/Connector 参与的整链；kill host 后 Connector 上报与残留 participant 检查未做 |
+| RD-P2-16 host 端到端 | 真实二进制连真实 LiveKit 通过（`scripts/e2e-livekit.py`）；`server/scripts/e2e_full_chain.py` 进一步由真实 Connector 拉起 host、由 Server 下发 grant，SFU 确认 `screen` 轨，结束后房间清空 | 采集是 Session 0 的 stub，不是真实桌面；kill host 后 Connector 上报与 stuck-key 的真机验收未做 |
 | RD-P3-07 Desktop 同步与原生层 | Web 实现已复制到 renderer；Connector local state → Electron `DesktopConnectorState` → 悬浮窗/菜单栏项/窗口内提示条；提示条可直接结束共享 | macOS status item 未在 macOS 验证；preload 只暴露「打开工作台」，没有「从悬浮窗直接结束共享」的 IPC |
 | RD-P3-09 端到端 | 各端 headless 检查通过 | Web/Desktop + 真 Server + 真 host + 真 LiveKit 的 Playwright/手动清单未执行 |
 | RD-P4 Android | P4-01…P4-06 已完成：编译、382 单测、`compileDebugAndroidTestKotlin`、`assembleDebug`（APK 108.3 MiB）、`:app:lintDebug`（0 error）与 `checkLegacyRoutes`/`checkRealtimeLifecycle`/`checkAndroidV2ReleaseGate` 全通过 | RD-P4-07 真机验收未做（观看 30 分钟、延迟/码率/耗电、手势与中文输入），`androidTest` 只编译未运行；剪贴板、PiP、截图未实现 |
