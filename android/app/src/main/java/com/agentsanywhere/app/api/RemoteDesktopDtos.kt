@@ -437,8 +437,20 @@ data class RemoteDesktopScreenshot(
     val height: Int,
     val capturedAt: String,
     val dataBase64: String,
+    /**
+     * Actual image type of [dataBase64] (`jpeg`, `png`). The request only hints at
+     * a format — the screen host may only be able to encode one of them — so
+     * callers must decode by this value; null means PNG (older hosts).
+     */
+    val format: String? = null,
 ) {
     fun bytes(): ByteArray = java.util.Base64.getMimeDecoder().decode(dataBase64)
+
+    fun mimeType(): String =
+        when (format?.trim()?.lowercase()) {
+            "jpeg", "jpg" -> "image/jpeg"
+            else -> "image/png"
+        }
 }
 
 // ---- parsing ---------------------------------------------------------------
@@ -623,5 +635,6 @@ internal fun JSONObject.remoteDesktopScreenshot(): RemoteDesktopScreenshot {
         height = optInt("height", 0),
         capturedAt = optString("capturedAt"),
         dataBase64 = optString("dataBase64"),
+        format = optNullableString("format"),
     )
 }

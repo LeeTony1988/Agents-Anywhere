@@ -2881,6 +2881,8 @@
     "sharingBannerView": "此设备正被远程观看",
     "openRemote": "查看远程桌面",
     "endSharing": "结束共享",
-    "sharingEnded": "已结束本次共享"
+    "sharingEnded": "已结束本次共享",
+    "screenshot": "截图",
+    "screenshotSaved": "已保存当前画面"
   }
 }

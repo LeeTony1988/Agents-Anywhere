@@ -2673,6 +2673,8 @@
       "invalid_event": "The input format was rejected.",
       "unsupported": "The device does not support this action.",
       "policy": "Device policy declined this action."
-    }
+    },
+    "screenshot": "Screenshot",
+    "screenshotSaved": "Screenshot saved"
   }
 }

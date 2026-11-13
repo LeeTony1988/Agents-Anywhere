@@ -357,4 +357,34 @@ class RemoteDesktopApiTest {
         assertTrue("Expected RemoteDesktopException, got $error", error is RemoteDesktopException)
         return error as RemoteDesktopException
     }
+
+    @Test
+    fun screenshotParsesTheActualImageFormat() {
+        server.enqueue(
+            jsonResponse(
+                200,
+                """
+                {"width":640,"height":360,"capturedAt":"2026-11-13T00:00:00Z",
+                 "dataBase64":"/9j/4AAQ","format":"jpeg"}
+                """.trimIndent(),
+            ),
+        )
+        val jpeg = api.screenshot(serverUrl, "token", "rds_01JABCDEF")
+        assertEquals("jpeg", jpeg.format)
+        assertEquals("image/jpeg", jpeg.mimeType())
+        assertArrayEquals(byteArrayOf(-1, -40, -1, -32, 0, 16), jpeg.bytes())
+
+        // Older hosts omit `format`: treat the bytes as PNG.
+        server.enqueue(
+            jsonResponse(
+                200,
+                """
+                {"width":640,"height":360,"capturedAt":"2026-11-13T00:00:00Z","dataBase64":"iVBORw0KGgo="}
+                """.trimIndent(),
+            ),
+        )
+        val png = api.screenshot(serverUrl, "token", "rds_01JABCDEF")
+        assertNull(png.format)
+        assertEquals("image/png", png.mimeType())
+    }
 }

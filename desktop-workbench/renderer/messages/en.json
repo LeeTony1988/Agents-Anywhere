@@ -2881,6 +2881,8 @@
     "sharingBannerView": "This device is being viewed remotely",
     "openRemote": "Open remote desktop",
     "endSharing": "Stop sharing",
-    "sharingEnded": "Sharing ended"
+    "sharingEnded": "Sharing ended",
+    "screenshot": "Screenshot",
+    "screenshotSaved": "Screenshot saved"
   }
 }

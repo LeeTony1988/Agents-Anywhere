@@ -14,6 +14,7 @@ import {
   RefreshCw,
   ZoomIn,
   ZoomOut,
+  Camera,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -23,6 +24,12 @@ import { cn } from "@/lib/utils"
 import { useAuth } from "@/components/auth/auth-context"
 import { useWorkspace } from "@/components/workspace-context"
 import { remoteDesktopApi, remoteDesktopErrorMessage } from "@/lib/remote-desktop/api"
+import {
+  screenshotBlob,
+  screenshotFilename,
+  type RemoteScreenshot,
+} from "@/lib/remote-desktop/screenshot"
+import { downloadBlob } from "@/lib/download"
 import {
   useRemoteDesktop,
   type RemoteDesktopStreamStats,
@@ -741,6 +748,29 @@ export function RemoteDesktopView({ connectorId, onExit }: Props) {
     sendButton("up", "left", point.x, point.y)
   }, [clearLongPress, pointAt, sendButton])
 
+  // ── Still frame ─────────────────────────────────────────────────────────
+  const [screenshotBusy, setScreenshotBusy] = React.useState(false)
+  const captureScreenshot = React.useCallback(async () => {
+    if (!token || !session?.id) return
+    setScreenshotBusy(true)
+    try {
+      const shot = (await remoteDesktopApi.screenshot(token, session.id, {
+        format: "jpeg",
+        maxWidth: 1920,
+        quality: 85,
+      })) as RemoteScreenshot
+      downloadBlob(
+        screenshotBlob(shot),
+        screenshotFilename(session.connectorId || "remote", shot.capturedAt, shot.format),
+      )
+      toast.success(t("screenshotSaved"))
+    } catch (error) {
+      toast.error(remoteDesktopErrorMessage(error))
+    } finally {
+      setScreenshotBusy(false)
+    }
+  }, [token, session?.id, session?.connectorId, t])
+
   // ── Physical keyboard ───────────────────────────────────────────────────
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === " " && !event.repeat) {
@@ -962,6 +992,15 @@ export function RemoteDesktopView({ connectorId, onExit }: Props) {
               </Button>
             </>
           ) : null}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void captureScreenshot()}
+            disabled={screenshotBusy || !session?.id}
+            aria-label={t("screenshot")}
+          >
+            <Camera />
+          </Button>
           <Button
             size="sm"
             variant="ghost"

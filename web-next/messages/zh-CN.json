@@ -2673,6 +2673,8 @@
       "invalid_event": "输入格式不被接受。",
       "unsupported": "设备不支持这个操作。",
       "policy": "设备策略拒绝了这个操作。"
-    }
+    },
+    "screenshot": "截图",
+    "screenshotSaved": "已保存当前画面"
   }
 }
