@@ -515,6 +515,84 @@ def test_control_waits_for_consent_without_media() -> None:
     assert media.grants == []
 
 
+def test_consent_matrix_matches_the_product_rule() -> None:
+    """Consent is required only for `control` on a device nobody is attending.
+
+    The rule lives in one place (D3 in the decision record); this matrix pins it
+    so a later refactor cannot quietly start prompting for `view` sessions or
+    silently auto-starting control sessions.
+    """
+
+    cases = [
+        # (mode, require_consent, allow_unattended, expected_state, expects_consent)
+        ("control", True, False, "awaiting_consent", True),
+        ("control", True, True, "starting", False),
+        ("control", False, False, "starting", False),
+        ("control", False, True, "starting", False),
+        ("view", True, False, "starting", False),
+        ("view", True, True, "starting", False),
+        ("view", False, False, "starting", False),
+    ]
+    for mode, require, unattended, expected_state, expects_consent in cases:
+        service, _, requester, media, _, _ = _service(
+            settings=_settings(
+                remoteDesktopRequireConsent=require,
+                remoteDesktopAllowUnattended=unattended,
+            )
+        )
+        result = asyncio.run(
+            service.create_or_join(
+                "conn_1",
+                "user_1",
+                {"connectorId": "conn_1", "mode": mode},
+                client_platform="web",
+                app_version=None,
+            )
+        )
+        label = f"{mode}/consent={require}/unattended={unattended}"
+        assert result["session"]["state"] == expected_state, label
+        start = next(call for call in requester.calls if call[1] == "remoteDesktop.start")
+        assert start[2]["consent"]["required"] is expects_consent, label
+        if expects_consent:
+            assert result["media"] is None, label
+            assert result["session"]["consentDeadlineAt"] is not None, label
+            assert media.grants == [], label
+        else:
+            assert result["media"] is not None, label
+            assert result["session"]["consentDeadlineAt"] is None, label
+
+
+def test_control_without_permission_is_refused_but_view_still_works() -> None:
+    service, _, requester, _, _, _ = _service(
+        settings=_settings(remoteDesktopAllowControl=False)
+    )
+
+    with pytest.raises(RemoteDesktopUnavailableError) as denied:
+        asyncio.run(
+            service.create_or_join(
+                "conn_1",
+                "user_1",
+                {"connectorId": "conn_1", "mode": "control"},
+                client_platform="web",
+                app_version=None,
+            )
+        )
+    assert denied.value.details["reason"] == "device_policy_disabled"
+    assert not any(call[1] == "remoteDesktop.start" for call in requester.calls)
+
+    allowed = asyncio.run(
+        service.create_or_join(
+            "conn_1",
+            "user_1",
+            {"connectorId": "conn_1", "mode": "view"},
+            client_platform="web",
+            app_version=None,
+        )
+    )
+    assert allowed["session"]["mode"] == "view"
+    assert allowed["media"] is not None
+
+
 def test_control_with_unattended_gets_controller_grant() -> None:
     service, _, _, media, _, _ = _service(
         settings=_settings(remoteDesktopRequireConsent=True, remoteDesktopAllowUnattended=True)

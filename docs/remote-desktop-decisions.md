@@ -148,3 +148,56 @@ starting → awaiting_consent → live → degraded ⇄ live
 `slug/path/sha256/direction` 与 schema 的 `x-direction` 必须一致；`validate.py` 必须做
 manifest 哈希校验、FormatChecker、fixture 目录 slug 匹配和 schema 元数据校验。
 
+## 6. 实现期补充决策（2026-11-13）
+
+冻结之后在实现与联调中做的判断，按「问题 → 结论 → 理由 → 落地位置」记录，避免后来者重新讨论或
+在别处写出相反的行为。
+
+### D9 启动失败的归因
+
+- **问题**：`remoteDesktop.start` 在 Connector 侧可能因权限、找不到显示器、host 未安装、采集失败等
+  原因失败；最初一律被压平成「host 不可用 / host_not_running」。
+- **结论**：按 Connector 的错误码映射 `details.reason`（`permission_denied`、`host_not_installed`、
+  `capture_failed`、`display_not_found`、`host_timeout`、`busy`…），并保留原始 `code`；其中
+  `permission_denied` 的会话结束原因记为 `consent_denied`，`host_not_installed`/`unsupported` 记为
+  `policy_revoked`，其余仍是 `media_error`。
+- **理由**：用户需要知道「是被拒绝」还是「设备没装/坏了」；审计也需要正确的结束原因。
+- **落地**：`services/remote_desktop.py` 的 `_START_FAILURE_REASONS`/`_start_failure_end_reason`；
+  单测 `test_consent_denial_surfaces_permission_denied_and_ends_the_session`、
+  `test_start_failure_reasons_keep_the_connector_code`；端到端 `e2e_full_chain.py` 第 2 阶段。
+
+### D10 监控端点的默认姿态
+
+- **结论**：`GET /api/v2/metrics` 默认关闭；`AGENT_SERVER_METRICS_ENABLED=true` 才暴露，
+  `AGENT_SERVER_METRICS_TOKEN` 可选要求 `Authorization: Bearer`。计数器是每进程的（带 `instance`
+  标签），`rd_sessions_active` 在抓取时读 PostgreSQL，跨 worker 天然正确。
+- **理由**：默认不新增攻击面；多 worker 下「按进程计数 + 抓取时读库」比集中计数更简单可靠。
+- **落地**：`services/remote_desktop_metrics.py`、`api/metrics.py`、`docker/prometheus.yml`、
+  `docker/alerts/remote-desktop.rules.yml`。
+
+### D11 合成采集是开发开关，不是产品能力
+
+- **结论**：`AA_SCREEN_HOST_SYNTHETIC_CAPTURE=1` 让 host 用合成图案替代真实屏幕；Connector 只有在
+  `AGENT_CONNECTOR_REMOTE_DESKTOP_SYNTHETIC_CAPTURE` 打开时才把这个变量转发给 host（host 的环境
+  其余部分仍被 allowlist 过滤）。默认两边都关闭，且不出现在任何面向用户的设置里。
+- **理由**：CI 与 Windows session 0 没有交互式桌面，没有它就无法验证编码→发布→解码整条链路。
+- **落地**：`screen-host/src/capture/synthetic.rs`；`connector/server/remote_desktop_rpc.py`
+  的 `_host_extra_env`；浏览器端到端断言（`<video>` 640×360、`readyState=4`）。
+
+### D12 路由白名单只有一个来源
+
+- **结论**：`AppPage` 与「哪些 page 合法」放在 `src/lib/app-page.ts` 的 `APP_PAGES` +
+  `resolveAppPage()`，Web 与 Desktop renderer 各一份、内容一致；组件只调函数，不再就地维护数组。
+- **理由**：`device-remote` 曾经不在白名单里，导致远程桌面页整体不可达（真实浏览器验证才发现）。
+- **落地**：`web-next/src/lib/app-page.ts`、`desktop-workbench/renderer/src/lib/app-page.ts` 及两端
+  的 `app-page.test.mjs`。
+
+### D13 控制权只在「控制」会话里需要同意
+
+- **结论**：`consent_required = mode == control && remoteDesktopRequireConsent && !remoteDesktopAllowUnattended`；
+  观看会话不弹本机确认，设备策略关闭控制时观看仍可用。
+- **理由**：D3 的「先同意再控制」针对会改变设备的操作；纯观看由设备设置 `remoteDesktopEnabled`
+  控制，避免每次看屏幕都要在设备上点确认。
+- **落地**：`services/remote_desktop.py` 的 `create_or_join`；矩阵测试
+  `test_consent_matrix_matches_the_product_rule` 与
+  `test_control_without_permission_is_refused_but_view_still_works`。
