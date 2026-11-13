@@ -454,7 +454,10 @@ class RemoteDesktopRpcHandler:
                 controllerIdentity=controller_identity,
                 startedAt=None,
             )
-            result = await self.supervisor.start(
+            # `deadlineMs` is the caller's budget for this start: the Server gives
+            # up after its RPC timeout, so spending longer than that would leave a
+            # host publishing for a session nobody is waiting for any more.
+            start_call = self.supervisor.start(
                 session_id,
                 display_id=display_id,
                 mode=mode,
@@ -463,6 +466,20 @@ class RemoteDesktopRpcHandler:
                 consent_required=False,
                 deadline_ms=deadline_ms,
             )
+            if deadline_ms:
+                try:
+                    result = await asyncio.wait_for(
+                        start_call, timeout=deadline_ms / 1000
+                    )
+                except TimeoutError as exc:
+                    await self._stop_quietly(session_id)
+                    raise RemoteDesktopRpcError(
+                        "rd_host_timeout",
+                        f"screen host did not start within {deadline_ms} ms",
+                        retryable=True,
+                    ) from exc
+            else:
+                result = await start_call
             if mode == "control" and controller_identity:
                 await self.supervisor.control_grant(
                     session_id, controller_identity

@@ -204,10 +204,12 @@ impl Host {
         {
             self.consent_required = consent;
         }
-        // deadlineMs is accepted and recorded (bounded 1..=300000 per schema) but not
-        // enforced in the skeleton.
+        // `deadlineMs` is the caller's budget for this start (1..=300000 per the
+        // schema). The Connector enforces it by cancelling the start and sending
+        // `host.stop`, so the host only records it for the log; a start that
+        // arrives after the caller gave up is stopped like any other.
         if let Some(deadline) = params.get("deadlineMs").and_then(serde_json::Value::as_u64) {
-            info!("host.start deadlineMs={deadline} recorded (not enforced)");
+            info!("host.start deadlineMs={deadline} (the Connector cancels on overrun)");
         }
 
         // Idempotent: same session already running -> accepted, no-op.

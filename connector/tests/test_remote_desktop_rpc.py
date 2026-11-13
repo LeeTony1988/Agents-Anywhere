@@ -96,6 +96,7 @@ class _StubSupervisor:
         self.input_calls: list[dict[str, Any]] = []
         self.event_handler = None
         self.start_error: Exception | None = None
+        self.start_delay = 0.0
 
     def set_event_handler(self, handler) -> None:
         self.event_handler = handler
@@ -108,6 +109,8 @@ class _StubSupervisor:
     async def start(self, session_id: str, **kwargs: Any) -> dict[str, Any]:
         if self.start_error is not None:
             raise self.start_error
+        if self.start_delay:
+            await asyncio.sleep(self.start_delay)
         self.start_calls.append({"session_id": session_id, **kwargs})
         self.running = True
         self.active_session_id = session_id
@@ -599,6 +602,43 @@ def test_host_state_updates_local_sharing_indicator() -> None:
     assert states[0]["state"] == "running"
     assert states[1]["active"] is False
     assert states[1]["state"] == "stopped"
+
+def test_start_deadline_stops_a_slow_host() -> None:
+    """`deadlineMs` is the caller's budget: overrun means stop, not keep starting."""
+
+    async def scenario() -> None:
+        supervisor = _StubSupervisor(installed=True, running=True)
+        supervisor.start_delay = 0.6
+        handler = _handler(supervisor)
+        with pytest.raises(RemoteDesktopRpcError) as caught:
+            await handler.start(
+                {
+                    "sessionId": "rds_deadline",
+                    "mode": "view",
+                    "displayId": "1",
+                    "deadlineMs": 120,
+                }
+            )
+        assert caught.value.code == "rd_host_timeout"
+        assert caught.value.retryable is True
+        # The half-started session must not keep publishing.
+        assert supervisor.running is False
+        assert supervisor.active_session_id is None
+
+    asyncio.run(scenario())
+
+
+def test_start_without_deadline_waits_for_the_host() -> None:
+    async def scenario() -> None:
+        supervisor = _StubSupervisor(installed=True, running=True)
+        supervisor.start_delay = 0.05
+        handler = _handler(supervisor)
+        result = await handler.start({"sessionId": "rds_no_deadline", "mode": "view"})
+        assert result["accepted"] is True
+        assert supervisor.active_session_id == "rds_no_deadline"
+
+    asyncio.run(scenario())
+
 
 def test_synthetic_capture_is_forwarded_to_the_host_only_on_request(
     monkeypatch: pytest.MonkeyPatch,
