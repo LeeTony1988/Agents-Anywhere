@@ -22,6 +22,7 @@
 
 ### 远程桌面
 
+- 远程桌面会话结束时，媒体服务器上的房间会被真正删除，不再在 SFU 上残留；此前由于管理令牌权限不足，删除请求被拒绝且只留在日志里。（[76e6b2a8](https://github.com/anywhere-labs/Agents-Anywhere/commit/76e6b2a8)）
 - Web 和 Desktop 可以在设备页查看该设备屏幕；获得授权后可用鼠标、键盘和手势控制，会话状态、码率、延迟和丢包在页面内可见。（[f885512c](https://github.com/anywhere-labs/Agents-Anywhere/commit/f885512c)）
 - 远程桌面默认关闭，开启观看、控制和无人值守都需要在设备本机确认；共享期间设备上常驻「正在共享屏幕」提示，可随时一键结束。（[f885512c](https://github.com/anywhere-labs/Agents-Anywhere/commit/f885512c)）
 - 同一台设备同时只保留一个远程桌面会话，多个客户端可以一起观看，控制权按租约在客户端之间转移；断线后 90 秒内可以恢复，超时自动结束并保留审计记录。（[f885512c](https://github.com/anywhere-labs/Agents-Anywhere/commit/f885512c)）
