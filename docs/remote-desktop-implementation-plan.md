@@ -4,6 +4,32 @@
 依据：[远程桌面架构方案](remote-desktop.md)、[`contracts/remote-desktop/1.0`](../contracts/remote-desktop/1.0/README.md) 与仓库现有实现。
 审查方式：契约、Server、Connector/Screen Host、客户端/部署、安全五个方向独立只读审查；契约校验脚本实测通过 `OK 12 fixtures`。
 
+## 交付状态一览
+
+| 阶段 | 状态 | 主要证据 | 阻塞原因 |
+| --- | --- | --- | --- |
+| P0 契约 1.0 | ✅ 冻结 | `validate.py` → 28 schema / 62 valid / 25 invalid；CI `contracts` job | — |
+| P1 Server 控制面 | ✅ 实现 + 真实联调 | 140 个 RD/指标/设置/架构用例；`e2e_full_chain.py` 用真实 Connector 跑通创建、consent、token、WS、结束 | 多 worker + Redis 的真实部署未验证 |
+| P2 Connector / Screen Host | 🟡 主体完成 | 46 个 Rust 测试 + clippy；host↔LiveKit 与整链发布均实测；打包脚本 + sha256 校验 | **真实 WGC 采集**需要交互式桌面；签名/公证需要证书 |
+| P3 Web / Desktop | ✅ 实现 | Web 499、Desktop 172+585、typecheck、静态构建；Desktop 悬浮窗/菜单栏项 | 浏览器/桌面端的真机 e2e 未跑 |
+| P4 Android | 🟡 除真机 | 382 单测、lint 0 error、`assembleDebug`、三个 gate；LiveKit 渲染与手势已接 | **真机观看/手势/中文输入**验收需要设备 |
+| P5 iOS | ⛔ 未开始 | — | 需要 macOS + Xcode，当前环境无法编译 |
+| P6 部署 | 🟡 文档与样例 | LiveKit compose/yaml、Prometheus 指标、nginx/Caddy 样例、版本与发布说明 | 真实 `docker compose up`、TURN、4G/企业网 ICE 未验证 |
+
+复现全部 headless 检查与端到端验证：
+
+```bash
+python contracts/remote-desktop/1.0/validate.py
+cd server && uv run pytest -q -k "remote_desktop or metrics or device_settings or architecture"
+cd connector && uv run pytest -q -k "remote_desktop or device_settings or config"
+cd screen-host && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+cd web-next && yarn test && yarn typecheck
+cd desktop-workbench && yarn test:main && cd renderer && yarn test && yarn typecheck
+cd android && ./gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+# 端到端（需要 livekit-server --dev）
+python -X utf8 server/scripts/e2e_full_chain.py --fresh
+```
+
 ## 实现进度
 
 按本文后面各阶段的条目逐项记录状态。**勾选表示条目与验收标准都已满足**；仅部分满足的条目保持
