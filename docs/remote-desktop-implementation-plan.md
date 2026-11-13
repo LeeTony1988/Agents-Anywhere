@@ -42,6 +42,11 @@
   5 组向量逐字节断言）、视图变换/缩放平移、`KeyEvent` → W3C code 映射、`input-event` 编码器与 120/s
   限流；`RemoteDesktopEventStream` 解析六类事件并带 cursor 重连；`RemoteDesktopSessionController`
   覆盖 consent/heartbeat/token 续签/抢占/结束/失败分支。Android 单测从 239 增至 **324 全绿**。
+- **P4-03 观看 UI、P4-06 控制权与生命周期接线**：`livekit/LiveKitMediaSession` 用官方 SDK 连接房间、
+  订阅 `screen` 轨并发布 `aa.input`/`aa.pointer`；`ui/screens/remotedesktop/` 有观看页、状态浮层、
+  顶部/控制/修饰键/键盘条；手势状态机覆盖 §8.1 表格；设备详情页在能力可用时显示入口，
+  路由 `RemoteDesktop` 已加入导航。Android 单测 **382 全绿**，`compileDebugAndroidTestKotlin`、
+  `assembleDebug`（APK 108.3 MB）与三个仓库 gate 全部通过。
 
 ### 部分完成（不能按已完成计）
 
@@ -61,7 +66,7 @@
 | RD-P2-16 host 端到端 | 真实 `aa-screen-host.exe` 的 start/info/screenshot/releaseAll/stop 联调通过 | 真 LiveKit + viewer 的完整链路、kill host 后 Connector 上报、残留 participant 检查未做 |
 | RD-P3-07 Desktop 同步与原生层 | Web 实现已复制到 renderer；Connector local state → Electron `DesktopConnectorState` → 悬浮窗/菜单栏项/窗口内提示条；提示条可直接结束共享 | macOS status item 未在 macOS 验证；preload 只暴露「打开工作台」，没有「从悬浮窗直接结束共享」的 IPC |
 | RD-P3-09 端到端 | 各端 headless 检查通过 | Web/Desktop + 真 Server + 真 host + 真 LiveKit 的 Playwright/手动清单未执行 |
-| RD-P4 Android | P4-01/02/04/05 已完成（编译 + 324 单测 + assembleDebug 通过，APK 约 101.8 MiB）；输入编码、坐标变换、键位映射、限流、会话 WS 解析与控制器都有单测 | P4-03（LiveKit 渲染与 Compose 观看页）、P4-06（控制权 UI）、P4-07（真机验收）仍未完成；`androidTest` 需要模拟器/真机 |
+| RD-P4 Android | P4-01…P4-06 已完成：编译、382 单测、`compileDebugAndroidTestKotlin`、`assembleDebug`（APK 108.3 MiB）与 `checkLegacyRoutes`/`checkRealtimeLifecycle`/`checkAndroidV2ReleaseGate` 全通过 | RD-P4-07 真机验收未做（观看 30 分钟、延迟/码率/耗电、手势与中文输入），`androidTest` 只编译未运行；剪贴板、PiP、截图未实现 |
 | RD-P5 iOS | 无 | Windows 环境没有 Xcode，无法编译验证，未开始 |
 | RD-P6-01 Docker LiveKit | `docker/livekit.yaml` + compose `remote-desktop` profile（webhook、prometheus、TURN 证书挂载、Redis 服务名） | 未真实 `docker compose up` 验证（本机无 Docker daemon） |
 | RD-P6-02 端口与 TLS | 文档写明端口/`use_external_ip`/TURN 443 方案 | 真实 4G/企业网 ICE 未验证 |
@@ -70,8 +75,7 @@
 
 ### 未开始
 
-- **P4 Android 剩余条目（RD-P4-03、RD-P4-06、RD-P4-07）**：工具链已就绪（见
-  [开发指南](development.md#android-工具链)），渲染层与观看页、控制权 UI、真机验收还没完成。
+- **RD-P4-07 Android 真机验收**：需要一台 Android 14 真机 + Windows host + 真 LiveKit，本机没有设备。
 - **P5 iOS（RD-P5-01…07）**：当前是 Windows 环境，没有 Xcode，既不能编译也不能真机验收。
 
 ## 0. 审查结论
