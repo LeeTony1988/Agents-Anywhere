@@ -5,11 +5,13 @@ import {
   dialog,
   ipcMain,
   Menu,
+  nativeImage,
+  nativeTheme,
   net,
   Notification,
-  nativeTheme,
   powerMonitor,
   protocol,
+  screen,
   session,
   shell,
   Tray,
@@ -43,6 +45,12 @@ import { readDesktopSettings } from "./desktop-settings";
 import { ConnectorLogStore } from "./log-store";
 import { allowWorkbenchFrame } from "./embedded-console";
 import { windowMaterialOptions } from "./window-material";
+import {
+  INACTIVE_SHARING,
+  parseSharingState,
+  sharingIndicatorTransition,
+  type SharingState,
+} from "./sharing-indicator";
 import buildInfo from "../build-info.json";
 import { droppedFolderPath } from "./dropped-folder";
 import config from "../config.json";
@@ -99,6 +107,11 @@ let silentLaunch: SilentLaunchState = "settled";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+/** Always-on-top "this device is being shared" badge, created while sharing. */
+let sharingOverlay: BrowserWindow | null = null;
+/** macOS menu-bar item for the same state; Windows uses the in-window banner. */
+let sharingStatusItem: Tray | null = null;
+let sharingState: SharingState = INACTIVE_SHARING;
 let devOrigin: string | null = null;
 let backend: DesktopBackendClient | null = null;
 let updates: DesktopUpdateService | null = null;
@@ -505,8 +518,123 @@ function showMainWindow(): void {
   window.focus();
 }
 
-function createWindowsTray(): void {
-  if (process.platform !== "win32" || tray) return;
+/** Monochrome menu-bar icon (template image) used while this device is shared. */
+const SHARING_TEMPLATE_ICON =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAALElEQVR4nGNgGGjACKX/k6ufiVIXMI0awDAaBlQAsKSMDaAnb6xqKY4FigEAX3sCF09bkbkAAAAASUVORK5CYII=";
+
+function sharingOverlayHtml(mode: string | null): string {
+  const detail = mode === "control" ? "此设备正被远程控制" : "此设备正被远程观看";
+  const html = `<!doctype html><html><head><meta charset="utf-8" /><style>
+  html,body{margin:0;height:100%;background:transparent;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;}
+  .pill{display:flex;align-items:center;gap:10px;height:100%;padding:0 14px;border-radius:14px;
+    background:rgba(24,24,27,.92);color:#fafafa;box-shadow:0 6px 20px rgba(0,0,0,.35);}
+  .dot{width:8px;height:8px;border-radius:999px;background:#f97316;flex:0 0 auto;}
+  .title{font-size:13px;font-weight:600;line-height:1.2;}
+  .detail{font-size:11px;opacity:.75;}
+  button{margin-left:auto;border:0;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;
+    background:#fafafa;color:#18181b;}
+  </style></head><body><div class="pill">
+    <span class="dot"></span>
+    <div><div class="title">正在共享屏幕</div><div class="detail">${detail}</div></div>
+    <button id="open">打开</button>
+  </div>
+  <script>
+    document.getElementById('open').addEventListener('click', () => {
+      window.sharingOverlay?.showWorkbench();
+    });
+  </script></body></html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
+function createSharingOverlay(): BrowserWindow {
+  const { workArea } = screen.getPrimaryDisplay();
+  const width = 300;
+  const height = 60;
+  const window = new BrowserWindow({
+    width,
+    height,
+    x: workArea.x + workArea.width - width - 24,
+    y: workArea.y + workArea.height - height - 24,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    focusable: false,
+    hasShadow: false,
+    alwaysOnTop: true,
+    webPreferences: {
+      preload: path.join(__dirname, "sharing-overlay-preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  window.setAlwaysOnTop(true, "screen-saver");
+  window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  window.once("ready-to-show", () => window.showInactive());
+  void window.loadURL(sharingOverlayHtml(sharingState.mode));
+  return window;
+}
+
+function destroySharingOverlay(): void {
+  if (!sharingOverlay) return;
+  const window = sharingOverlay;
+  sharingOverlay = null;
+  if (!window.isDestroyed()) window.destroy();
+}
+
+function createSharingStatusItem(): Tray {
+  const item = new Tray(nativeImage.createFromDataURL(SHARING_TEMPLATE_ICON));
+  item.setToolTip("Agents Anywhere 正在共享屏幕");
+  item.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: "正在共享屏幕", enabled: false },
+      { label: "打开 Agents Anywhere", click: () => showMainWindow() },
+    ]),
+  );
+  item.on("click", () => showMainWindow());
+  return item;
+}
+
+/**
+ * Mirror the Connector's local `remoteDesktop` state onto the two surfaces a
+ * user can see while the workbench window is in the background: an
+ * always-on-top overlay in the corner of the primary display, and (on macOS) a
+ * menu-bar item. Windows already has the tray from `createWindowsTray`.
+ */
+function updateSharingIndicator(value: unknown): void {
+  const next = parseSharingState(value);
+  const transition = sharingIndicatorTransition(sharingState, next, {
+    overlayPresent: Boolean(sharingOverlay && !sharingOverlay.isDestroyed()),
+    statusItemPresent: sharingStatusItem !== null,
+  });
+  if (transition === "unchanged") return;
+  sharingState = next;
+
+  if (transition === "hide") {
+    destroySharingOverlay();
+    sharingStatusItem?.destroy();
+    sharingStatusItem = null;
+    return;
+  }
+
+  if (transition === "show" || !sharingOverlay || sharingOverlay.isDestroyed()) {
+    destroySharingOverlay();
+    sharingOverlay = createSharingOverlay();
+  } else {
+    void sharingOverlay.loadURL(sharingOverlayHtml(next.mode));
+  }
+  if (process.platform === "darwin" && !sharingStatusItem) {
+    sharingStatusItem = createSharingStatusItem();
+  }
+}
+
+function createWindowsTray(): void {  if (process.platform !== "win32" || tray) return;
   const iconPath = path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), "build", "icon.ico");
   tray = new Tray(iconPath);
   tray.setToolTip(APP_NAME);
@@ -673,6 +801,12 @@ function registerIpcHandlers(): void {
   ipcMain.handle("workbench:files:droppedFolderPath", (event, value: unknown) => {
     assertTrustedRenderer(event);
     return droppedFolderPath(value);
+  });
+  ipcMain.handle("workbench:sharing:show", (event) => {
+    // The overlay has its own minimal preload; make sure nothing else can use
+    // this channel to reveal the window.
+    if (!sharingOverlay || event.sender !== sharingOverlay.webContents) return;
+    showMainWindow();
   });
   ipcMain.handle("workbench:ownership:getState", event => {
     assertTrustedRenderer(event);
@@ -941,6 +1075,11 @@ async function startDesktopBackend(): Promise<void> {
         return;
       }
       if (event.event === "settings") applyLoginItemSettings();
+      if (event.event === "state") {
+        updateSharingIndicator(
+          (event.data as { remoteDesktop?: unknown } | null)?.remoteDesktop,
+        );
+      }
     },
     onExit: (message) => {
       appendMainLog({ level: "ERROR", message });

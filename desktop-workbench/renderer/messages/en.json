@@ -2879,6 +2879,8 @@
     "sharingBanner": "Screen is being shared",
     "sharingBannerControl": "This device is being controlled remotely",
     "sharingBannerView": "This device is being viewed remotely",
-    "openRemote": "Open remote desktop"
+    "openRemote": "Open remote desktop",
+    "endSharing": "Stop sharing",
+    "sharingEnded": "Sharing ended"
   }
 }

@@ -2879,6 +2879,8 @@
     "sharingBanner": "正在共享屏幕",
     "sharingBannerControl": "此设备正被远程控制",
     "sharingBannerView": "此设备正被远程观看",
-    "openRemote": "查看远程桌面"
+    "openRemote": "查看远程桌面",
+    "endSharing": "结束共享",
+    "sharingEnded": "已结束本次共享"
   }
 }
