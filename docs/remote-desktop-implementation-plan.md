@@ -30,6 +30,11 @@
   `rd_sessions_ended_total`、`rd_session_duration_seconds`、`rd_errors_total` 与
   `rd_fps`/`rd_bitrate_kbps`/`rd_packet_loss_pct`/`rd_input_rtt_ms`。告警规则本身由部署方
   在 Prometheus 里配置，本文档给出建议阈值。
+- **真实进程级验证（2026-11-13）**：`screen-host/scripts/e2e-livekit.py` 与
+  `server/scripts/e2e_media_plane.py` 用真实 host 二进制 + 真实 `livekit-server` 跑通，并因此修掉三个
+  真实缺陷：host `hello.arch` 输出 `x8664`（契约为 `x86_64`）、`displayId="0"` 找不到显示器（现在解析到
+  首个显示器）、LiveKit 管理令牌缺少 `roomCreate` 导致 `DeleteRoom`/`RemoveParticipant` 恒 401（房间
+  残留）以及 httpx 继承环境代理导致 RoomService 502。
 - **P6-06 版本与发布、P6-07 文档**：各端版本统一 2.3.0，`docs/releases/2.3.0.md`、`CHANGELOG.md`
   未发布节、`docs/api/remote-desktop.md` 与 `docs/remote-desktop.md` 已更新。
 - **P4-01 依赖与 Manifest、P4-02 API/DTO**：`io.livekit:livekit-android:2.30.0`（官方 Maven Central）；
@@ -68,7 +73,7 @@
 | RD-P3-09 端到端 | 各端 headless 检查通过 | Web/Desktop + 真 Server + 真 host + 真 LiveKit 的 Playwright/手动清单未执行 |
 | RD-P4 Android | P4-01…P4-06 已完成：编译、382 单测、`compileDebugAndroidTestKotlin`、`assembleDebug`（APK 108.3 MiB）、`:app:lintDebug`（0 error）与 `checkLegacyRoutes`/`checkRealtimeLifecycle`/`checkAndroidV2ReleaseGate` 全通过 | RD-P4-07 真机验收未做（观看 30 分钟、延迟/码率/耗电、手势与中文输入），`androidTest` 只编译未运行；剪贴板、PiP、截图未实现 |
 | RD-P5 iOS | 无 | Windows 环境没有 Xcode，无法编译验证，未开始 |
-| RD-P6-01 Docker LiveKit | `docker/livekit.yaml` + compose `remote-desktop` profile（webhook、prometheus、TURN 证书挂载、Redis 服务名） | 未真实 `docker compose up` 验证（本机无 Docker daemon） |
+| RD-P6-01 Docker LiveKit | `docker/livekit.yaml` + compose `remote-desktop` profile（webhook、prometheus、TURN 证书挂载、Redis 服务名）；`server/scripts/e2e_media_plane.py` 用真实 `livekit-server` 验证了 Server 签发的 host grant、`screen` 轨与 `delete_room` | 未真实 `docker compose up` 验证（本机无 Docker daemon）；TURN 与 webhook 回调未验证 |
 | RD-P6-02 端口与 TLS | 文档写明端口/`use_external_ip`/TURN 443 方案 | 真实 4G/企业网 ICE 未验证 |
 | RD-P6-03 Server 环境变量 | 完整命名、缺配置时能力 `supported=false` 且不崩溃 | `AGENT_SERVER_SECRET` 只在保存密钥/Tokens 链接时强制 32+（`secret_box`）与签发 OAuth 客户端时检查，远程桌面本身不依赖它，因此没有额外的启动校验 |
 | RD-P6-04 反代 | `docker/README.md` 写明 WebSocket upgrade、webhook 不重写 body、请求体上限；新增 `docker/nginx-remote-desktop.conf` 与 `docker/Caddyfile` 两份可直接使用的样例 | 两份样例未经真实反代集成测试（本机没有 nginx/caddy） |
