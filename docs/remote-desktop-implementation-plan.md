@@ -53,7 +53,7 @@
 | RD-P2-11 发布 | `NativeVideoSource` + VP8 + Screenshare + `simulcast=false` 真实实现，采集线程持续送帧；已用本地 `livekit-server --dev` 验证 host 入房并发布 `screen` track | 真实桌面采集→发布的 P95 延迟、`get_stats` 的 bitrate/rtt/loss 字段（当前 fps/分辨率来自本地计数）未端到端验证 |
 | RD-P2-12 Windows 输入 | `SendInput` 鼠标/键盘/Unicode、VK 映射、pressed 集合 + release-all 有实现与单测；`host.input` 有 120 事件/秒滑动窗口限流（超出返回 `rd_rate_limited`） | 多显示器坐标归一化、真机 stuck-key/拖拽释放验收未做 |
 | RD-P2-13 本机确认与可见性 | host 常驻 topmost 提示窗（点击结束共享，主循环优雅退出）；Connector 可选原生 MessageBox 确认；Desktop 窗口内提示条 + always-on-top 悬浮窗 + macOS 菜单栏项 | 确认/拒绝/超时/无人值守组合矩阵未在真机跑过；macOS 菜单栏项未在 macOS 上验证 |
-| RD-P2-14 打包与签名 | `scripts/package.ps1` 产出 `dist/<platform>-<arch>/aa-screen-host[.exe]` + `manifest.json`；`scripts/build-livekit.ps1` 与 `.cargo/config.toml` 固定 libwebrtc/CRT 构建方式 | 未签名/公证，未接入 `desktop-workbench` extraResources、DSH 插件 bundle 与 CLI 下载器，也没有干净 VM 安装验收 |
+| RD-P2-14 打包与签名 | `scripts/package.ps1` 产出 `dist/<platform>-<arch>/aa-screen-host[.exe]` + `manifest.json`；`scripts/build-livekit.ps1` 与 `.cargo/config.toml` 固定 libwebrtc/CRT 构建方式；`desktop-workbench/scripts/prepare-screen-host.mjs` 把 `screen-host/dist` 复制成 `resources/screen-host/`（缺失时写占位 README，打包不失败），已接入 `pack` 与 `dist` | 未签名/公证，DSH 插件 bundle 与 CLI 下载器未接，也没有干净 VM 安装验收 |
 | RD-P2-16 host 端到端 | 真实 `aa-screen-host.exe` 的 start/info/screenshot/releaseAll/stop 联调通过 | 真 LiveKit + viewer 的完整链路、kill host 后 Connector 上报、残留 participant 检查未做 |
 | RD-P3-07 Desktop 同步与原生层 | Web 实现已复制到 renderer；Connector local state → Electron `DesktopConnectorState` → 悬浮窗/菜单栏项/窗口内提示条；提示条可直接结束共享 | macOS status item 未在 macOS 验证；preload 只暴露「打开工作台」，没有「从悬浮窗直接结束共享」的 IPC |
 | RD-P3-09 端到端 | 各端 headless 检查通过 | Web/Desktop + 真 Server + 真 host + 真 LiveKit 的 Playwright/手动清单未执行 |
