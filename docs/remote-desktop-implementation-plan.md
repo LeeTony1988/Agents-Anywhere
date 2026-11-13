@@ -45,7 +45,7 @@
 | RD-P2-09 `host.cancel` | 其余协议能力已完成 | `host.cancel` 方法未实现（契约里也没有该方法） |
 | RD-P2-10 Windows 采集 | WGC（优先）+ DXGI 回退、显示器枚举、screenshot 为真实实现，`--features wgc` 可编译 | 本机是 Session 0，WGC/DXGI 都返回 Access Denied；1080p/4K 稳定性与显示器热插拔需真机验收 |
 | RD-P2-11 发布 | `NativeVideoSource` + VP8 + Screenshare + `simulcast=false` 真实实现，采集线程持续送帧；已用本地 `livekit-server --dev` 验证 host 入房并发布 `screen` track | 真实桌面采集→发布的 P95 延迟、`get_stats` 的 bitrate/rtt/loss 字段（当前 fps/分辨率来自本地计数）未端到端验证 |
-| RD-P2-12 Windows 输入 | `SendInput` 鼠标/键盘/Unicode、VK 映射、pressed 集合 + release-all 有实现与单测 | 多显示器坐标归一化、120/s 限频、真机 stuck-key/拖拽释放验收未做 |
+| RD-P2-12 Windows 输入 | `SendInput` 鼠标/键盘/Unicode、VK 映射、pressed 集合 + release-all 有实现与单测；`host.input` 有 120 事件/秒滑动窗口限流（超出返回 `rd_rate_limited`） | 多显示器坐标归一化、真机 stuck-key/拖拽释放验收未做 |
 | RD-P2-13 本机确认与可见性 | host 常驻 topmost 提示窗（点击结束共享，主循环优雅退出）；Connector 可选原生 MessageBox 确认；Desktop 窗口内提示条 + always-on-top 悬浮窗 + macOS 菜单栏项 | 确认/拒绝/超时/无人值守组合矩阵未在真机跑过；macOS 菜单栏项未在 macOS 上验证 |
 | RD-P2-14 打包与签名 | `scripts/package.ps1` 产出 `dist/<platform>-<arch>/aa-screen-host[.exe]` + `manifest.json`；`scripts/build-livekit.ps1` 与 `.cargo/config.toml` 固定 libwebrtc/CRT 构建方式 | 未签名/公证，未接入 `desktop-workbench` extraResources、DSH 插件 bundle 与 CLI 下载器，也没有干净 VM 安装验收 |
 | RD-P2-16 host 端到端 | 真实 `aa-screen-host.exe` 的 start/info/screenshot/releaseAll/stop 联调通过 | 真 LiveKit + viewer 的完整链路、kill host 后 Connector 上报、残留 participant 检查未做 |
