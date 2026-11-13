@@ -3,6 +3,7 @@ package com.agentsanywhere.app.ui.screens.remotedesktop
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -107,6 +108,36 @@ class RemoteDesktopScreenTest {
 
         compose.onNodeWithText(text(R.string.remote_desktop_unavailable_title)).assertIsDisplayed()
         compose.onNodeWithText(text(R.string.remote_desktop_reason_connector_offline)).assertIsDisplayed()
+    }
+
+    @Test
+    fun liveSessionOffersScreenshotEvenWhenWatching() {
+        show(
+            RemoteDesktopUiState(
+                deviceName = DEVICE_NAME,
+                session = RemoteDesktopSessionState.Live(session(), controlling = false),
+            ),
+        )
+
+        // Watching is enough to capture a frame; the button sits in the control bar.
+        compose
+            .onNodeWithContentDescription(text(R.string.remote_desktop_screenshot))
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun screenshotButtonInvokesTheCallback() {
+        show(
+            RemoteDesktopUiState(
+                deviceName = DEVICE_NAME,
+                session = RemoteDesktopSessionState.Live(session(), controlling = true),
+            ),
+        )
+
+        compose
+            .onNodeWithContentDescription(text(R.string.remote_desktop_screenshot))
+            .performClick()
+        compose.runOnIdle { assertEquals(1, screenshots) }
     }
 
     private fun show(state: RemoteDesktopUiState) {
