@@ -64,6 +64,11 @@ Reverse proxy notes: keep WebSocket `Upgrade`/`Connection` headers for
 and allow request bodies up to the screenshot limit. TURN/TLS can share port 443
 with a layer-4 proxy when the corporate network only allows 443.
 
+Ready-to-copy samples live next to this file:
+[`nginx-remote-desktop.conf`](./nginx-remote-desktop.conf) and
+[`Caddyfile`](./Caddyfile). Both keep the session WebSocket open for an hour,
+pass the LiveKit webhook body through untouched, and raise the body limit.
+
 Remote desktop metrics are off by default. To scrape them:
 
 ```bash

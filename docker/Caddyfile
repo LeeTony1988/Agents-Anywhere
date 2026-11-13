@@ -1,0 +1,44 @@
+# Caddyfile for Agents Anywhere with remote desktop.
+#
+#   caddy run --config docker/Caddyfile
+#
+# Caddy handles WebSocket upgrades automatically; the explicit pieces here are
+# the long read timeout for the session socket, an untouched LiveKit webhook
+# body and a body limit large enough for screenshots.
+
+{
+    # Media never goes through Caddy (LiveKit serves 7880/7881/udp itself).
+    servers {
+        max_header_size 32KB
+    }
+}
+
+{$AGENTS_ANYWHERE_DOMAIN:localhost} {
+    encode zstd gzip
+
+    @rd_ws path /api/v2/remote-desktop/sessions/*/ws
+    handle @rd_ws {
+        reverse_proxy server-next:8000 {
+            flush_interval -1
+            transport http {
+                read_timeout 1h
+            }
+        }
+    }
+
+    @livekit_webhook path /api/v2/internal/livekit/webhook
+    handle @livekit_webhook {
+        # The Server verifies a sha256 claim over the raw body.
+        request_body {
+            max_size 1MB
+        }
+        reverse_proxy server-next:8000
+    }
+
+    handle {
+        request_body {
+            max_size 32MB
+        }
+        reverse_proxy server-next:8000
+    }
+}
