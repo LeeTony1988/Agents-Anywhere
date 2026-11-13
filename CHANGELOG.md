@@ -22,7 +22,7 @@
 
 ### 远程桌面
 
-- Web、Desktop 和 Android 的远程桌面页可以一键保存当前画面（截图）；保存的文件名带设备与时间，格式跟随服务端实际返回的格式（JPEG 或 PNG）。（[PENDING](https://github.com/anywhere-labs/Agents-Anywhere/commit/871a10c3)）
+- Web、Desktop 和 Android 的远程桌面页可以一键保存当前画面（截图）；保存的文件名带设备与时间，格式跟随服务端实际返回的格式（JPEG 或 PNG）。（[PENDING](https://github.com/anywhere-labs/Agents-Anywhere/commit/12898c32)）
 - Web 和 Desktop 点设备页的「看这台设备屏幕」现在真的会打开远程桌面页面（之前会回到首页），可以在页面里申请控制、看到控制租约倒计时并释放控制。（[e67ac161](https://github.com/anywhere-labs/Agents-Anywhere/commit/e67ac161)、[c605f565](https://github.com/anywhere-labs/Agents-Anywhere/commit/c605f565)）
 - 设备上没有可确认的人时，创建远程桌面会话会明确提示「已在设备上被拒绝」，会话记为「未获同意」，不再显示成「主机不可用」。（[ff39ea3d](https://github.com/anywhere-labs/Agents-Anywhere/commit/ff39ea3d)）
 - 远程桌面会话结束时，媒体服务器上的房间会被真正删除，不再在 SFU 上残留；此前由于管理令牌权限不足，删除请求被拒绝且只留在日志里。（[76e6b2a8](https://github.com/anywhere-labs/Agents-Anywhere/commit/76e6b2a8)）
