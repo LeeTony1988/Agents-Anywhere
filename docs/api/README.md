@@ -21,6 +21,7 @@ All Server HTTP, SSE, and WebSocket API documentation should live under this dir
 - [Capability event deduplication](./capability-event-deduplication.md): why repeated session capability events occurred and how live projection delivery is deduplicated safely.
 - [模型配置](model-config.md)：模型配置、预览、应用与恢复，Tokens Anywhere 链接，以及 Runtime 的成熟度和模型连接状态。
 - [Realtime API](./realtime.md): session, dashboard, connector, and terminal realtime channel semantics.
+- [Remote desktop API](./remote-desktop.md): connector-scoped screen sharing — sessions, consent, control lease, media tokens, the session WebSocket, the LiveKit webhook, and Connector notifications.
 - [Admin Usage API](./admin-usage.md): event-driven usage statistics for administrators (`/admin/usage/*`), how events are collected and what each metric means.
 - [Frontend migration checklist](./frontend-migration-checklist.md): frontend API call-site replacements and behavior changes to apply after backend cleanup.
 
@@ -113,6 +114,20 @@ WS /remote-desktop/sessions/{sessionId}/ws
 See [Remote desktop API](./remote-desktop.md), the
 [architecture and selection notes](../remote-desktop.md), and the wire contract
 [`contracts/remote-desktop/1.0`](../../contracts/remote-desktop/1.0/README.md).
+
+### Operations endpoints
+
+Not part of any client API; they exist for the media server and for monitoring.
+Both are disabled or require credentials by default.
+
+```text
+POST /internal/livekit/webhook   # LiveKit -> Server, Bearer JWT + sha256 claim
+GET  /metrics                    # Prometheus text, only with AGENT_SERVER_METRICS_ENABLED=true
+```
+
+The webhook is documented in [Remote desktop API](./remote-desktop.md#livekit-webhook); the
+metric families and alerting thresholds are in
+[remote desktop §11.3](../remote-desktop.md) and `docker/prometheus.yml`.
 
 ## Removed legacy API areas
 
