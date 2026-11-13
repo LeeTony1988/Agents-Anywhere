@@ -42,6 +42,20 @@ cargo run -- --stdio       # 默认：hello 帧 + stdin 逐行处理
 cargo run -- --once        # 只处理一行请求后优雅退出
 ```
 
+## 打包
+
+```powershell
+.\scripts\package.ps1                       # release 构建（stub 发布器）
+.\scripts\package.ps1 -Features "wgc,livekit"
+.\scripts\package.ps1 -NoBuild -DebugBuild   # 复用已有 debug 二进制
+```
+
+输出 `dist/<platform>-<arch>/aa-screen-host[.exe]` 和同目录的 `manifest.json`
+（`platform`/`arch`/`version`/`sha256`/`features`/`bytes`）。Connector 启动前会校验
+`sha256`：二进制被替换或只复制了一半时以 `rd_host_integrity` 拒绝运行，能力保持不可用。
+安装包把它放到 `resources/screen-host/<platform>-<arch>/`（Connector 的
+`default_screen_host_path` 会从这里解析）。`dist/` 已被 `.gitignore` 忽略。
+
 ## LiveKit 版本锁定
 
 - `Cargo.toml` 中 `livekit = "=0.10.1"` 精确锁定，并要求提交 `Cargo.lock`

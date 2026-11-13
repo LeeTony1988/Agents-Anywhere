@@ -38,7 +38,7 @@
 | 条目 | 已做到 | 缺口 |
 | --- | --- | --- |
 | RD-P1-16 集成测试 | 单 worker + 真实 PostgreSQL 的远程桌面/设备设置/架构边界 130+ 用例通过 | 两 worker + Redis 的并发链路由 `RemoteDesktopMaintenanceLoop` 的条件更新单测覆盖，但没有真实双进程集成测试 |
-| RD-P2-03 host 定位/校验 | 按 `screen-host/<platform>-<arch>/` 解析并对开发目录回退；`hostPath` 只来自本地配置 | 没有内置 manifest/sha256、Authenticode/codesign 校验 |
+| RD-P2-03 host 定位/校验 | 按 `screen-host/<platform>-<arch>/` 解析并对开发目录回退；`scripts/package.ps1` 写出 `manifest.json`（platform/arch/version/sha256/features），Connector 校验 sha256，篡改或不匹配时以 `rd_host_integrity` 拒绝启动；`hostPath` 只来自本地配置 | 没有 Authenticode / codesign / teamID 校验（只有哈希完整性） |
 | RD-P2-04 Supervisor | 三路 PIPE、4 MiB 限制、env allowlist、Windows Job Object、POSIX guardian、ping 3 次重启、退避限流都有实现与单测 | 「kill host / kill Connector / 注销用户」三场景未在真机矩阵里验证；stderr 轮转未做 |
 | RD-P2-05 退出清理 | `run_forever` finally 调用 `aclose()` → release-all/stop/terminate；stdin EOF 与 shutdown 帧已覆盖 | Ctrl-C/SIGTERM 信号路径未接（依赖 Connector 进程退出时的 finally） |
 | RD-P2-06 RPC 方法 | `hostInfo/start/stop/updateQuality/control.grant/requestKeyframe/releaseAll/screenshot/input` 全部实现，参数校验与错误码映射有测试 | `deadlineMs` 只记录未执行；旧 Connector 兼容分支没有专门测试 |
@@ -47,7 +47,7 @@
 | RD-P2-11 发布 | `NativeVideoSource` + VP8 + Screenshare + `simulcast=false` 真实实现，采集线程持续送帧；已用本地 `livekit-server --dev` 验证 host 入房并发布 `screen` track | 真实桌面采集→发布的 P95 延迟、`get_stats` 的 bitrate/rtt/loss 字段（当前 fps/分辨率来自本地计数）未端到端验证 |
 | RD-P2-12 Windows 输入 | `SendInput` 鼠标/键盘/Unicode、VK 映射、pressed 集合 + release-all 有实现与单测 | 多显示器坐标归一化、120/s 限频、真机 stuck-key/拖拽释放验收未做 |
 | RD-P2-13 本机确认与可见性 | host 常驻 topmost 提示窗（点击结束共享，主循环优雅退出）；Connector 可选原生 MessageBox 确认；Desktop 窗口内提示条 + always-on-top 悬浮窗 + macOS 菜单栏项 | 确认/拒绝/超时/无人值守组合矩阵未在真机跑过；macOS 菜单栏项未在 macOS 上验证 |
-| RD-P2-14 打包与签名 | `scripts/build-livekit.ps1` 与 `.cargo/config.toml` 固定 libwebrtc/CRT 构建方式 | 没有 release 产物、sha256 manifest、签名/公证，也未接入 `desktop-workbench` extraResources |
+| RD-P2-14 打包与签名 | `scripts/package.ps1` 产出 `dist/<platform>-<arch>/aa-screen-host[.exe]` + `manifest.json`；`scripts/build-livekit.ps1` 与 `.cargo/config.toml` 固定 libwebrtc/CRT 构建方式 | 未签名/公证，未接入 `desktop-workbench` extraResources、DSH 插件 bundle 与 CLI 下载器，也没有干净 VM 安装验收 |
 | RD-P2-16 host 端到端 | 真实 `aa-screen-host.exe` 的 start/info/screenshot/releaseAll/stop 联调通过 | 真 LiveKit + viewer 的完整链路、kill host 后 Connector 上报、残留 participant 检查未做 |
 | RD-P3-07 Desktop 同步与原生层 | Web 实现已复制到 renderer；Connector local state → Electron `DesktopConnectorState` → 悬浮窗/菜单栏项/窗口内提示条；提示条可直接结束共享 | macOS status item 未在 macOS 验证；preload 只暴露「打开工作台」，没有「从悬浮窗直接结束共享」的 IPC |
 | RD-P3-09 端到端 | 各端 headless 检查通过 | Web/Desktop + 真 Server + 真 host + 真 LiveKit 的 Playwright/手动清单未执行 |
