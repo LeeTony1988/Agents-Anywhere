@@ -87,7 +87,7 @@ def wait_for_port(port: int, timeout: float) -> bool:
     return False
 
 
-async def ensure_database(db_url: str) -> None:
+async def ensure_database(db_url: str, *, fresh: bool = False) -> None:
     """Create the e2e database if it is missing (never touches other names)."""
 
     import asyncpg
@@ -110,6 +110,15 @@ async def ensure_database(db_url: str) -> None:
         exists = await connection.fetchval(
             "SELECT 1 FROM pg_database WHERE datname = $1", database
         )
+        if exists and fresh:
+            await connection.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = $1 AND pid <> pg_backend_pid()",
+                database,
+            )
+            await connection.execute(f'DROP DATABASE "{database}"')
+            log(f"dropped database {database}")
+            exists = False
         if not exists:
             await connection.execute(f'CREATE DATABASE "{database}"')
             log(f"created database {database}")
@@ -234,6 +243,11 @@ def main() -> int:
         default=str(ROOT / "screen-host" / "target" / "debug" / "aa-screen-host.exe"),
     )
     parser.add_argument("--keep-database", action="store_true")
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="drop and recreate the e2e database before the run",
+    )
     args = parser.parse_args()
 
     # The same secret the server process uses, so `create_user_access_token` in
@@ -253,7 +267,7 @@ def main() -> int:
     log_dir.mkdir()
     server_process = connector_process = None
     try:
-        asyncio.run(ensure_database(db_url))
+        asyncio.run(ensure_database(db_url, fresh=args.fresh))
 
         log("running migrations")
         migrate(db_url, log_dir / "migrations.log")
