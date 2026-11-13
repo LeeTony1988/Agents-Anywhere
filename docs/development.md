@@ -21,21 +21,50 @@ Server 的全量 `pytest` 在 Windows 上还会卡在既有的 `tests/test_sessi
 
 ### Android 工具链
 
-SDK 用环境变量注入，**不要**提交 `android/local.properties`：
+SDK 路径有两种给法，**`android/local.properties` 不要提交**（已被 `.gitignore` 忽略）：
+
+```properties
+# android/local.properties —— Android Studio 打开 android/ 时会自动生成
+sdk.dir=<SDK 路径>
+agentsAnywhere.serverUrl=http://10.0.2.2:8123   # 可选：让 debug 包连本机 Server（模拟器访问宿主要用 10.0.2.2）
+```
 
 ```powershell
-$env:ANDROID_HOME = "D:\android-sdk"
-$env:ANDROID_SDK_ROOT = "D:\android-sdk"
+$env:ANDROID_HOME = "<SDK 路径>"
+$env:ANDROID_SDK_ROOT = "<SDK 路径>"
 cd android
 .\gradlew.bat --no-daemon :app:compileDebugKotlin   # 首次约 5 分钟
-.\gradlew.bat --no-daemon :app:testDebugUnitTest
+.\gradlew.bat --no-daemon :app:testDebugUnitTest     # JVM 单测
 ```
 
 需要的 SDK 包：`platform-tools`、`platforms;android-36`、`build-tools;36.0.0`，以及 **`build-tools;34.0.0`**——
 项目没有固定 `buildToolsVersion`，AGP 8.7.3 默认用 34.0.0；断网环境要先装好，否则会卡在自动下载。
 `compileSdk = 36` 超出 AGP 8.7.3 的测试上限，`android/gradle.properties` 里的
-`android.suppressUnsupportedCompileSdk=36` 只是消掉这条警告。`androidTest` 需要模拟器或真机，
-CI 不覆盖 Android。
+`android.suppressUnsupportedCompileSdk=36` 只是消掉这条警告。
+
+#### 在模拟器上跑 `androidTest`
+
+已用 Android Studio 2026.2.2 自带的 emulator 37.2.13 + `system-images;android-37.0;google_apis_playstore;x86_64`
+（AVD `Medium_Phone_API_37.0`）验证通过：全部 36 个 instrumented 用例、`RemoteDesktopScreenTest` 6/6 通过。
+
+```powershell
+# 1) 无窗口启动模拟器（已有 AVD 时；-list-avds 查看）
+& "<SDK>\emulator\emulator.exe" -avd Medium_Phone_API_37.0 -no-window -no-audio -no-boot-anim `
+  -gpu swiftshader_indirect -no-snapshot
+
+# 2) 等它起来
+& "<SDK>\platform-tools\adb.exe" wait-for-device
+& "<SDK>\platform-tools\adb.exe" shell getprop sys.boot_completed   # 1 即可
+
+# 3) 跑 instrumented 测试（可只跑一个类）
+cd android
+.\gradlew.bat --no-daemon :app:connectedDebugAndroidTest
+.\gradlew.bat --no-daemon :app:connectedDebugAndroidTest `
+  "-Pandroid.testInstrumentationRunnerArguments.class=com.agentsanywhere.app.ui.screens.remotedesktop.RemoteDesktopScreenTest"
+```
+
+注意两点：`connectedAndroidTest` **不支持** `--tests`（要用上面那个 `android.testInstrumentationRunnerArguments`
+参数）；模拟器用 `-gpu swiftshader_indirect` 时 LiveKit 视频能出画但很卡，别拿它评估流畅度。仓库 CI 不覆盖 Android。
 
 ## Web 与 Server 本地联调
 
