@@ -212,6 +212,11 @@ def _lease_after(seconds: int, now: str) -> str:
     )
 
 
+#: Budget handed to `remoteDesktop.start`; the Connector stops the host when it
+#: overruns, so a session nobody waits for cannot keep publishing.
+START_DEADLINE_MS = 8_000
+
+
 def _session_api(session: RemoteDesktopSession) -> dict[str, Any]:
     payload = session.to_api()
     if session.state == "awaiting_consent":
@@ -817,6 +822,9 @@ class RemoteDesktopService:
                 if mode == "control"
                 else None,
                 "participantId": participant_id,
+                # Slightly below the RPC timeout so the Connector gives up (and
+                # stops the host) before this call fails on our side.
+                "deadlineMs": START_DEADLINE_MS,
             },
             timeout=10,
         )

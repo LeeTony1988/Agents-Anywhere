@@ -1014,3 +1014,25 @@ def test_screenshot_reports_the_host_image_format() -> None:
         },
     )
     assert odd["format"] == "png"
+
+def test_start_rpc_carries_a_deadline_below_the_rpc_timeout() -> None:
+    """The Connector stops a host that overruns, so the deadline must be sent."""
+
+    service, _, requester, _, _, _ = _service(
+        settings=_settings(remoteDesktopRequireConsent=False)
+    )
+    asyncio.run(
+        service.create_or_join(
+            "conn_1",
+            "user_1",
+            {"connectorId": "conn_1", "mode": "view"},
+            client_platform="web",
+            app_version=None,
+        )
+    )
+    start = next(call for call in requester.calls if call[1] == "remoteDesktop.start")
+    deadline = start[2]["deadlineMs"]
+    assert isinstance(deadline, int)
+    assert 1 <= deadline <= 300_000
+    # Below the RPC timeout (10 s) so the Connector gives up before we do.
+    assert deadline < 10_000
