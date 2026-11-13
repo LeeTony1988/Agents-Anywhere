@@ -25,7 +25,8 @@
     "ensure:uv": "node scripts/ensure-uv.mjs",
     "bundle:uv": "node scripts/prepare-uv.mjs",
     "bundle:python": "node scripts/prepare-python.mjs",
-    "pack": "yarn bundle:uv && yarn bundle:python && yarn build && electron-builder --dir",
+    "bundle:screen-host": "node scripts/prepare-screen-host.mjs",
+    "pack": "yarn bundle:uv && yarn bundle:python && yarn bundle:screen-host && yarn build && electron-builder --dir",
     "dist": "node scripts/dist-desktop.mjs",
     "dist:mac": "node scripts/dist-desktop.mjs mac",
     "dist:win": "node scripts/dist-desktop.mjs win"
@@ -66,6 +67,13 @@
           "!**/_reference/**",
           "!**/_deprecated/**",
           "!**/*.pyc"
+        ]
+      },
+      {
+        "from": "screen-host-bundle",
+        "to": "screen-host",
+        "filter": [
+          "**/*"
         ]
       },
       {

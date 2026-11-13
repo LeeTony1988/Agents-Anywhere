@@ -187,6 +187,10 @@ async function main() {
   } else {
     yarn(["bundle:uv"], { ...cleanEnvironment, UV_BUNDLE_TARGETS: bundleTargets.join(",") });
     yarn(["bundle:python"], { ...cleanEnvironment, PYTHON_BUNDLE_TARGETS: bundleTargets.join(",") });
+    // The screen host is platform-arch specific and optional: without
+    // screen-host/dist this leaves a placeholder and the remote desktop
+    // capability reports host_not_installed at runtime.
+    yarn(["bundle:screen-host"], cleanEnvironment);
     yarn(["build"], cleanEnvironment);
   }
   rmSync(OUTPUT_DIR, { recursive: true, force: true });

@@ -59,3 +59,4 @@ _reference/*
 screen-host/target/
 
 screen-host/dist/
+desktop-workbench/screen-host-bundle/
