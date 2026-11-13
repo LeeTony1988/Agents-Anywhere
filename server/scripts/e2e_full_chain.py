@@ -159,6 +159,7 @@ def migrate(db_url: str, log_path: Path) -> None:
     with log_path.open("w", encoding="utf-8") as handle:
         result = subprocess.run(
             [str(SERVER_PYTHON), "-m", "agent_server.infra.db.migrations", "upgrade"],
+            check=False,
             cwd=str(ROOT / "server"),
             env=env,
             stdout=handle,
@@ -302,7 +303,7 @@ def main() -> int:
         log("credential issued")
 
         config_path = workdir / "connector.json"
-        configure = subprocess.run(
+        configure = subprocess.run(  # noqa: PLW1510 - exit code checked below
             [
                 str(CONNECTOR_PYTHON),
                 "-m",

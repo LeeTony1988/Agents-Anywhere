@@ -27,7 +27,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "server"))
 
-from agent_server.services.remote_desktop_media import (  # noqa: E402
+from agent_server.services.remote_desktop_media import (
     LiveKitMediaProvider,
 )
 
@@ -41,7 +41,7 @@ def provider() -> LiveKitMediaProvider:
 
 
 async def list_participants(media: LiveKitMediaProvider, room: str) -> dict:
-    return await media._room_service_call("ListParticipants", {"room": room})  # noqa: SLF001
+    return await media._room_service_call("ListParticipants", {"room": room})
 
 
 async def main(binary: str) -> int:
@@ -60,7 +60,8 @@ async def main(binary: str) -> int:
         return 1
 
     env = {**os.environ, "RUST_LOG": "info"}
-    process = subprocess.Popen(
+    # Blocking spawn is fine: this script drives one host process end to end.
+    process = subprocess.Popen(  # noqa: ASYNC220
         [binary, "--stdio"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
