@@ -101,7 +101,7 @@ python -X utf8 server/scripts/e2e_full_chain.py --fresh --browser
 | RD-P5 iOS | 无 | Windows 环境没有 Xcode，无法编译验证，未开始 |
 | RD-P6-01 Docker LiveKit | `docker/livekit.yaml` + compose `remote-desktop` profile（webhook、prometheus、TURN 证书挂载、Redis 服务名）；`server/scripts/e2e_media_plane.py` 用真实 `livekit-server` 验证了 Server 签发的 host grant、`screen` 轨与 `delete_room` | 未真实 `docker compose up` 验证（本机无 Docker daemon）；TURN 与 webhook 回调未验证 |
 | RD-P6-02 端口与 TLS | 文档写明端口/`use_external_ip`/TURN 443 方案 | 真实 4G/企业网 ICE 未验证 |
-| RD-P6-03 Server 环境变量 | 完整命名、缺配置时能力 `supported=false` 且不崩溃 | `AGENT_SERVER_SECRET` 只在保存密钥/Tokens 链接时强制 32+（`secret_box`）与签发 OAuth 客户端时检查，远程桌面本身不依赖它，因此没有额外的启动校验 |
+| RD-P6-03 Server 环境变量 | 完整命名、缺配置时能力 `supported=false` 且不崩溃；`AGENT_SERVER_SECRET` 为空/默认/短于 32 时启动打印警告（`core/auth.py` 的 `secret_problem()`，含单测） | 只是警告，不会阻止启动；部署文档仍需强调必须设置 |
 | RD-P6-04 反代 | `docker/README.md` 写明 WebSocket upgrade、webhook 不重写 body、请求体上限；新增 `docker/nginx-remote-desktop.conf` 与 `docker/Caddyfile` 两份可直接使用的样例 | 两份样例未经真实反代集成测试（本机没有 nginx/caddy） |
 
 ### 未开始

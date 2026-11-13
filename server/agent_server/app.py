@@ -49,6 +49,7 @@ from agent_server.api import (
     remote_desktop as remote_desktop_api,
 )
 from agent_server.core.api_namespace import API_V2_PREFIX
+from agent_server.core.auth import secret_problem
 from agent_server.core.process_settings import ProcessSettings
 from agent_server.core.setup_token import SetupToken
 from agent_server.core.utc import utc_now
@@ -173,6 +174,13 @@ def create_app(
                 "server concurrency pid={} workers={} event_workers={}",
                 os.getpid(), process_settings.workers, process_settings.event_workers,
             )
+            _secret_problem = secret_problem()
+            if _secret_problem is not None:
+                logger.warning(
+                    "AGENT_SERVER_SECRET is {} — access tokens are forgeable and stored "
+                    "secrets cannot be encrypted; set a random 32+ character value",
+                    _secret_problem,
+                )
             await require_current_database(app.state.store.engine)
             app.state.database_schema_version = await database_schema_version(
                 app.state.store.engine

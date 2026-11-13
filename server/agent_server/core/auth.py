@@ -13,9 +13,33 @@ DEFAULT_EXPIRES_IN = 900
 DEFAULT_USER_EXPIRES_IN = 60 * 60 * 24 * 7
 
 
+DEFAULT_SECRET = "agent-server-dev-secret"
+#: Same floor as `infra/secret_box.py`: below this, HMAC tokens are guessable.
+MIN_SECRET_LENGTH = 32
+
+
 def _secret() -> bytes:
-    value = os.environ.get("AGENT_SERVER_SECRET", "agent-server-dev-secret")
+    value = os.environ.get("AGENT_SERVER_SECRET", DEFAULT_SECRET)
     return value.encode("utf-8")
+
+
+def secret_problem(secret: str | None = None) -> str | None:
+    """Why ``AGENT_SERVER_SECRET`` cannot be trusted, or ``None`` when it is fine.
+
+    The Server signs user and connector tokens with it; with the default value
+    anyone who read the repository can mint a token for any account. Encryption
+    of stored keys already refuses to work in that case, but the rest of the
+    Server would still start silently, so startup logs this instead.
+    """
+
+    value = os.environ.get("AGENT_SERVER_SECRET", "") if secret is None else secret
+    if not value:
+        return "unset"
+    if value == DEFAULT_SECRET:
+        return "default"
+    if len(value) < MIN_SECRET_LENGTH:
+        return "too_short"
+    return None
 
 
 def create_connector_access_token(
