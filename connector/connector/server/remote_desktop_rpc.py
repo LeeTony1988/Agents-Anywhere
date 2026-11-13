@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -134,6 +135,26 @@ _HOST_ERROR_CODE_MAP = {
 }
 
 
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _host_extra_env() -> dict[str, str]:
+    """Development-only environment handed to the screen host.
+
+    The supervisor runs the host with a filtered environment (no `AGENT_*` /
+    `AA_*` passthrough), so features a developer needs locally have to be
+    forwarded explicitly. Right now that is the synthetic capture source, which
+    lets the whole media pipeline run on a machine without an interactive
+    desktop (CI, Windows session 0).
+    """
+
+    extra: dict[str, str] = {}
+    if _truthy(os.environ.get("AGENT_CONNECTOR_REMOTE_DESKTOP_SYNTHETIC_CAPTURE")):
+        extra["AA_SCREEN_HOST_SYNTHETIC_CAPTURE"] = "1"
+    return extra
+
+
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
@@ -244,6 +265,7 @@ class RemoteDesktopRpcHandler:
             self.supervisor = ScreenHostSupervisor(
                 host_path=resolved_host_path,
                 event_handler=self.handle_host_event,
+                extra_env=_host_extra_env(),
             )
         else:
             self.supervisor = supervisor

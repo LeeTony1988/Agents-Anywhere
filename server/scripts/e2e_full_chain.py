@@ -328,6 +328,40 @@ async def drive_browser(
                 await asyncio.sleep(1)
             evidence["controlling"] = controlling
             evidence["controlText"] = text[:400]
+            video = await _evaluate(
+                socket,
+                counter,
+                """
+                (() => {
+                  const video = document.querySelector('video');
+                  if (!video) return null;
+                  return {
+                    width: video.videoWidth,
+                    height: video.videoHeight,
+                    readyState: video.readyState,
+                    paused: video.paused,
+                  };
+                })()
+                """,
+            )
+            evidence["video"] = video if isinstance(video, dict) else None
+            # The publisher starts producing frames a moment after we connect.
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                current = await _evaluate(
+                    socket,
+                    counter,
+                    """
+                    (() => {
+                      const video = document.querySelector('video');
+                      return video ? video.videoWidth : 0;
+                    })()
+                    """,
+                )
+                if isinstance(current, int) and current > 0:
+                    break
+                await asyncio.sleep(1)
+            evidence["videoWidth"] = int(current or 0) if isinstance(current, int) else 0
             await _evaluate(socket, counter, "window.localStorage.clear(); 'ok'")
         return evidence
     finally:
@@ -400,8 +434,13 @@ def start_server(db_url: str, port: int, log_path: Path) -> subprocess.Popen:
     return process
 
 
-def start_connector(config_path: Path, log_path: Path) -> subprocess.Popen:
+def start_connector(
+    config_path: Path, log_path: Path, *, synthetic_capture: bool = False
+) -> subprocess.Popen:
     env = {**os.environ, "AGENT_CONNECTOR_REMOTE_DESKTOP_CONSENT_PROMPT": "none"}
+    if synthetic_capture:
+        # Lets the media pipeline run without an interactive desktop.
+        env["AGENT_CONNECTOR_REMOTE_DESKTOP_SYNTHETIC_CAPTURE"] = "1"
     handle = log_path.open("w", encoding="utf-8")
     process = subprocess.Popen(
         [
@@ -537,7 +576,11 @@ def main() -> int:
             return 1
 
         log("starting connector")
-        connector_process = start_connector(config_path, log_dir / "connector.log")
+        connector_process = start_connector(
+            config_path,
+            log_dir / "connector.log",
+            synthetic_capture=args.browser,
+        )
 
         deadline = time.time() + 90
         online = False
@@ -716,6 +759,8 @@ def main() -> int:
                                 "remotePage",
                                 "clickedTakeControl",
                                 "controlling",
+                                "videoWidth",
+                                "video",
                             )
                         }
                     )
@@ -725,6 +770,9 @@ def main() -> int:
                     return 1
                 if not evidence.get("controlling"):
                     log("FAIL: taking control from the browser did not take effect")
+                    return 1
+                if not evidence.get("videoWidth"):
+                    log("FAIL: the browser never decoded a video frame")
                     return 1
                 participants = asyncio.run(list_participants(room))
                 identities = sorted(

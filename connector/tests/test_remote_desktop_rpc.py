@@ -599,3 +599,22 @@ def test_host_state_updates_local_sharing_indicator() -> None:
     assert states[0]["state"] == "running"
     assert states[1]["active"] is False
     assert states[1]["state"] == "stopped"
+
+def test_synthetic_capture_is_forwarded_to_the_host_only_on_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The supervisor filters `AA_*`, so dev-only switches must be explicit."""
+
+    from connector.server import remote_desktop_rpc
+
+    monkeypatch.delenv("AGENT_CONNECTOR_REMOTE_DESKTOP_SYNTHETIC_CAPTURE", raising=False)
+    assert remote_desktop_rpc._host_extra_env() == {}
+
+    for value in ("1", "true", "YES", "on"):
+        monkeypatch.setenv("AGENT_CONNECTOR_REMOTE_DESKTOP_SYNTHETIC_CAPTURE", value)
+        assert remote_desktop_rpc._host_extra_env() == {
+            "AA_SCREEN_HOST_SYNTHETIC_CAPTURE": "1"
+        }
+
+    monkeypatch.setenv("AGENT_CONNECTOR_REMOTE_DESKTOP_SYNTHETIC_CAPTURE", "0")
+    assert remote_desktop_rpc._host_extra_env() == {}

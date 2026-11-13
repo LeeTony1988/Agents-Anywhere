@@ -1,6 +1,7 @@
 //! Capture source abstraction and platform selection.
 
 pub mod fake;
+pub mod synthetic;
 #[cfg(all(windows, feature = "wgc"))]
 pub mod wgc;
 #[cfg(windows)]
@@ -76,10 +77,41 @@ pub trait CaptureSource: Send {
     fn stop(&mut self);
 }
 
+/// RFC 3339 UTC timestamp, used for `Frame::captured_at`.
+///
+/// `std` has no calendar formatting, so this converts epoch seconds to civil
+/// time with Howard Hinnant's days-from-epoch algorithm (valid for the host's
+/// operational range).
+pub fn now_rfc3339() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let days = secs / 86_400;
+    let tod = secs % 86_400;
+    let (hh, mm, ss) = (tod / 3600, (tod % 3600) / 60, tod % 60);
+    let z = days as i64 + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+    format!("{year:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}Z")
+}
+
 /// Pick the platform capture backend. On Windows this is a real
 /// [`windows::WindowsCaptureSource`]; elsewhere a [`fake::FakeCaptureSource`] so the
 /// host stays functional (and testable) off-platform.
 pub fn new_capture_source(quality: Quality) -> Box<dyn CaptureSource> {
+    if synthetic::synthetic_requested() {
+        // Development/demo path: moving pixels on machines without an
+        // interactive desktop (CI, Windows session 0).
+        return Box::new(synthetic::SyntheticCaptureSource::new(quality));
+    }
     #[cfg(windows)]
     {
         Box::new(windows::WindowsCaptureSource::new(quality))
