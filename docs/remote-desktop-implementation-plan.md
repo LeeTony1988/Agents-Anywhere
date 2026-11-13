@@ -4,33 +4,64 @@
 依据：[远程桌面架构方案](remote-desktop.md)、[`contracts/remote-desktop/1.0`](../contracts/remote-desktop/1.0/README.md) 与仓库现有实现。
 审查方式：契约、Server、Connector/Screen Host、客户端/部署、安全五个方向独立只读审查；契约校验脚本实测通过 `OK 12 fixtures`。
 
-## 实现进度（2026-11-13）
+## 实现进度
 
-- **P0 契约冻结：完成**。`contracts/remote-desktop/1.0` 现有 28 个 schema、62 份 valid fixture、25 份
-  invalid fixture；`validate.py` 校验 schema 元数据、manifest sha256/slug/direction 与 fixture 目录，
-  已接入 `.github/workflows/ci.yml` 的 `contracts` job。决策记录见
+按本文后面各阶段的条目逐项记录状态。**勾选表示条目与验收标准都已满足**；仅部分满足的条目保持
+未勾选，并在下面「部分完成」表里写清缺口，避免把半成品读成已完成。
+
+### 已完成
+
+- **P0 契约冻结**：`contracts/remote-desktop/1.0` 有 28 个 schema、62 份 valid fixture、25 份
+  invalid fixture；`validate.py` 校验 schema 元数据、manifest sha256/slug/direction 与 fixture
+  目录布局，已接入 `.github/workflows/ci.yml` 的 `contracts` job。决策记录见
   [远程桌面 v1 决策记录](remote-desktop-decisions.md)。
-- **P1 Server 控制面：完成主体**。`v2_56` 迁移、领域模型/状态机、仓储、7 项设备设置、媒体 provider、
-  LiveKit token/webhook、HTTP 路由、WS ticket 与双工 WS、通知 handler、broker、维护 sweeper、
-  删除清理与测试均已落地；Server 测试（含 PostgreSQL）通过。
-- **P2 Screen Host / Connector：完成主体**。`screen-host/` Rust 工程（协议、状态机、Windows 显示器
-  枚举、WGC/DXGI 采集、SendInput、截图、常驻共享提示窗）已交付并通过 `cargo test`；真实 WGC 采集
-  代码已编译，但本机 CI 会话无法验证交互式桌面捕获（需真机 `--ignored` 测试）。LiveKit 发布器已实现并
-  在 `--features livekit` 下完成编译/链接（预编译 libwebrtc + 静态 CRT），并已用本地
-  `livekit-server --dev` 验证 host 加入房间、发布 `screen` VP8 SCREEN_SHARE track；真实桌面采集
-  到发布的完整链路仍需真机联调。
-  Connector 的 host supervisor、`remoteDesktop.*` RPC、共享 dispatcher、配置与设备设置已完成，
-  并与真实 `aa-screen-host.exe` 做了 start/info/screenshot/releaseAll/stop 联调；本机被控状态
-  （`remoteDesktop`）已进入 Connector local state。
-- **P3 Web/Desktop：完成观看与控制主体**。契约类型已生成到
-  `web-next/src/generated/remote-desktop/v1_0`；Web 的 API 客户端、LiveKit hook、观看/控制页面、
-  手势/键盘/剪贴板入口与设备页入口已完成，`yarn typecheck`、`yarn test`、静态导出构建通过；
-  同一套实现已复制到 `desktop-workbench/renderer` 并通过 typecheck/test/build。Desktop 已读取
-  Connector local state 中的 `remoteDesktop` 被控状态并在窗口内显示共享提示条；always-on-top
-  原生悬浮窗与 macOS 菜单栏项尚未实现。
-- **P4/P5：未开始**（Android、iOS）。
-- **P6：部分完成**。版本号已统一升到 2.3.0，发布说明、CHANGELOG、LiveKit compose/配置和 Server
-  环境变量文档已更新；TURN 证书、反代样例、监控指标与真实部署验证仍未完成。
+- **P1 Server 控制面（RD-P1-01…15）**：`v2_56` 迁移、领域模型/状态机、仓储、7 项设备设置、
+  媒体 provider、LiveKit token 与 webhook、HTTP 路由、WS ticket 与双工 WS、通知 handler、broker、
+  维护 sweeper、删除清理、限流与审计均已落地。
+- **P2-08 工程骨架、P2-09 握手与协议（除 `host.cancel`）**：`screen-host/` 的 NDJSON 循环、
+  `protocol.rs`、握手失败退出码 78、坏帧 `rd_host_protocol_error`、重复 start 幂等都有测试。
+- **P2-15 host CI**：`.github/workflows/ci.yml` 增加 `screen-host/*` 触发与 Windows/macOS/Linux
+  的 fmt/clippy/test job，Windows 额外编译 `--features wgc`。
+- **P3-01…P3-06、P3-08**：两边 `generate-protocol-types.mjs` 覆盖契约（兼容 `contractVersion`、
+  为 ingress 单独生成），API 客户端与错误码映射、观看页面、手势/键盘/剪贴板入口、控制权 UI、
+  能力降级都已实现并有单测；Web `typecheck`/`test`/静态导出构建通过。
+- **P6-05 监控告警**：Server 暴露 `GET /api/v2/metrics`（`AGENT_SERVER_METRICS_ENABLED` /
+  `AGENT_SERVER_METRICS_TOKEN` 控制），提供 `rd_sessions_active`、`rd_sessions_total`、
+  `rd_sessions_ended_total`、`rd_session_duration_seconds`、`rd_errors_total` 与
+  `rd_fps`/`rd_bitrate_kbps`/`rd_packet_loss_pct`/`rd_input_rtt_ms`。告警规则本身由部署方
+  在 Prometheus 里配置，本文档给出建议阈值。
+- **P6-06 版本与发布、P6-07 文档**：各端版本统一 2.3.0，`docs/releases/2.3.0.md`、`CHANGELOG.md`
+  未发布节、`docs/api/remote-desktop.md` 与 `docs/remote-desktop.md` 已更新。
+
+### 部分完成（不能按已完成计）
+
+| 条目 | 已做到 | 缺口 |
+| --- | --- | --- |
+| RD-P1-16 集成测试 | 单 worker + 真实 PostgreSQL 的远程桌面/设备设置/架构边界 130+ 用例通过 | 两 worker + Redis 的并发链路由 `RemoteDesktopMaintenanceLoop` 的条件更新单测覆盖，但没有真实双进程集成测试 |
+| RD-P2-03 host 定位/校验 | 按 `screen-host/<platform>-<arch>/` 解析并对开发目录回退；`hostPath` 只来自本地配置 | 没有内置 manifest/sha256、Authenticode/codesign 校验 |
+| RD-P2-04 Supervisor | 三路 PIPE、4 MiB 限制、env allowlist、Windows Job Object、POSIX guardian、ping 3 次重启、退避限流都有实现与单测 | 「kill host / kill Connector / 注销用户」三场景未在真机矩阵里验证；stderr 轮转未做 |
+| RD-P2-05 退出清理 | `run_forever` finally 调用 `aclose()` → release-all/stop/terminate；stdin EOF 与 shutdown 帧已覆盖 | Ctrl-C/SIGTERM 信号路径未接（依赖 Connector 进程退出时的 finally） |
+| RD-P2-06 RPC 方法 | `hostInfo/start/stop/updateQuality/control.grant/requestKeyframe/releaseAll/screenshot/input` 全部实现，参数校验与错误码映射有测试 | `deadlineMs` 只记录未执行；旧 Connector 兼容分支没有专门测试 |
+| RD-P2-09 `host.cancel` | 其余协议能力已完成 | `host.cancel` 方法未实现（契约里也没有该方法） |
+| RD-P2-10 Windows 采集 | WGC（优先）+ DXGI 回退、显示器枚举、screenshot 为真实实现，`--features wgc` 可编译 | 本机是 Session 0，WGC/DXGI 都返回 Access Denied；1080p/4K 稳定性与显示器热插拔需真机验收 |
+| RD-P2-11 发布 | `NativeVideoSource` + VP8 + Screenshare + `simulcast=false` 真实实现，采集线程持续送帧；已用本地 `livekit-server --dev` 验证 host 入房并发布 `screen` track | 真实桌面采集→发布的 P95 延迟、`get_stats` 的 bitrate/rtt/loss 字段（当前 fps/分辨率来自本地计数）未端到端验证 |
+| RD-P2-12 Windows 输入 | `SendInput` 鼠标/键盘/Unicode、VK 映射、pressed 集合 + release-all 有实现与单测 | 多显示器坐标归一化、120/s 限频、真机 stuck-key/拖拽释放验收未做 |
+| RD-P2-13 本机确认与可见性 | host 常驻 topmost 提示窗（点击结束共享，主循环优雅退出）；Connector 可选原生 MessageBox 确认；Desktop 窗口内提示条 + always-on-top 悬浮窗 + macOS 菜单栏项 | 确认/拒绝/超时/无人值守组合矩阵未在真机跑过；macOS 菜单栏项未在 macOS 上验证 |
+| RD-P2-14 打包与签名 | `scripts/build-livekit.ps1` 与 `.cargo/config.toml` 固定 libwebrtc/CRT 构建方式 | 没有 release 产物、sha256 manifest、签名/公证，也未接入 `desktop-workbench` extraResources |
+| RD-P2-16 host 端到端 | 真实 `aa-screen-host.exe` 的 start/info/screenshot/releaseAll/stop 联调通过 | 真 LiveKit + viewer 的完整链路、kill host 后 Connector 上报、残留 participant 检查未做 |
+| RD-P3-07 Desktop 同步与原生层 | Web 实现已复制到 renderer；Connector local state → Electron `DesktopConnectorState` → 悬浮窗/菜单栏项/窗口内提示条；提示条可直接结束共享 | macOS status item 未在 macOS 验证；preload 只暴露「打开工作台」，没有「从悬浮窗直接结束共享」的 IPC |
+| RD-P3-09 端到端 | 各端 headless 检查通过 | Web/Desktop + 真 Server + 真 host + 真 LiveKit 的 Playwright/手动清单未执行 |
+| RD-P4 Android | 无 | 本机没有 Android SDK，无法编译验证，未开始 |
+| RD-P5 iOS | 无 | Windows 环境没有 Xcode，无法编译验证，未开始 |
+| RD-P6-01 Docker LiveKit | `docker/livekit.yaml` + compose `remote-desktop` profile（webhook、prometheus、TURN 证书挂载、Redis 服务名） | 未真实 `docker compose up` 验证（本机无 Docker daemon） |
+| RD-P6-02 端口与 TLS | 文档写明端口/`use_external_ip`/TURN 443 方案 | 真实 4G/企业网 ICE 未验证 |
+| RD-P6-03 Server 环境变量 | 完整命名、缺配置时能力 `supported=false` 且不崩溃 | `AGENT_SERVER_SECRET` 强度校验未加 |
+| RD-P6-04 反代 | `docker/README.md` 写明 WebSocket upgrade、webhook 不重写 body、请求体上限 | 没有 nginx/caddy 样例文件与集成测试 |
+
+### 未开始
+
+- **P4 Android（RD-P4-01…07）**、**P5 iOS（RD-P5-01…07）**：当前环境缺少 Android SDK 与 Xcode，
+  既不能编译也不能真机验收。实现前需要先补齐工具链，再按各条目验收标准执行。
 
 ## 0. 审查结论
 
