@@ -64,11 +64,13 @@ $env:AGENT_CONNECTOR_REMOTE_DESKTOP_SYNTHETIC_CAPTURE = "1"
 
 ## 截图的格式
 
-`host.screenshot` 目前只输出 **PNG**（8 位灰度，按 `maxWidth` 整数步降采样），响应里的 `format`
-字段就是 `png`。请求里的 `format` 只是提示：没有 JPEG 编码器时不会伪造，Server 会把 host 报告的
-`format` 透传给客户端，客户端应按响应字段解码而不是按自己请求的格式解码。
+`host.screenshot` 支持 `format: "jpeg" | "png"`：
 
-需要 JPEG 时再引入编码器；在那之前，UI 侧不要假设 `format=jpeg` 一定返回 JPEG。
+- **jpeg**（默认质量 80，可用 `quality` 覆盖）：从亮度平面编码的灰度 JPEG，体积约为 PNG 的 1/7
+  （合成采集 640×480 下 33 KB vs 231 KB）；
+- **png**：8 位灰度、按 `maxWidth` 整数步降采样，使用 stored-block DEFLATE（不压缩），体积大但无损；
+- 未知的 `format` 回退到 PNG；**响应里的 `format` 才是实际格式**，客户端必须按它解码，不能假设
+  自己请求的格式一定生效。Server 会把 host 报告的 `format` 透传给客户端。
 
 ## 验收脚本与手动探测
 
