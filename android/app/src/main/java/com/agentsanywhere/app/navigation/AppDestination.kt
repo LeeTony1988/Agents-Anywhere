@@ -16,4 +16,6 @@ enum class AppDestination(val title: String) {
     ArchivedSessions("Archived Sessions"),
     DeviceSetup("Device Setup"),
     ModelConfig("Model Configuration"),
+    /** Remote desktop viewer for [selectedDeviceId]; see `RemoteDesktopRoute`. */
+    RemoteDesktop("Remote Desktop"),
 }

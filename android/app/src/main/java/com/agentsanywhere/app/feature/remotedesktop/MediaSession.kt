@@ -1,6 +1,7 @@
 package com.agentsanywhere.app.feature.remotedesktop
 
 import com.agentsanywhere.app.api.RemoteDesktopMediaGrant
+import com.agentsanywhere.app.feature.remotedesktop.input.RemoteInputSink
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -11,18 +12,12 @@ import kotlinx.coroutines.flow.Flow
  * tests must not need a room; the LiveKit implementation (and the SurfaceView/TrackRenderer
  * wiring that goes with it) is the UI agent's deliverable.
  */
-interface MediaSession {
+interface MediaSession : RemoteInputSink {
     /** Joins the room with a freshly issued grant. Called again on token renewal. */
     suspend fun connect(grant: RemoteDesktopMediaGrant)
 
     /** Leaves the room and releases every track. Safe to call when never connected. */
     fun disconnect()
-
-    /** Publishes one `aa.input` JSON event on the reliable, ordered data channel. */
-    fun sendInput(json: String)
-
-    /** Publishes one 12-byte `aa.pointer` frame on the lossy, unordered data channel. */
-    fun sendPointerFrame(bytes: ByteArray)
 
     /** Connection lifecycle of the room; collect this to drive [RemoteDesktopSessionController]. */
     val events: Flow<MediaSessionEvent>

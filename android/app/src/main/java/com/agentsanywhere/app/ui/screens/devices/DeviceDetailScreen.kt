@@ -51,6 +51,7 @@ import com.agentsanywhere.app.feature.devices.DeviceSetupCredential
 import com.agentsanywhere.app.feature.devices.DeviceSettingsOperations
 import com.agentsanywhere.app.feature.devices.DeviceSettingsState
 import com.agentsanywhere.app.feature.devices.hasDeviceSettings
+import com.agentsanywhere.app.feature.remotedesktop.RemoteDesktopEntryState
 import com.agentsanywhere.app.feature.sessions.SessionsState
 import com.agentsanywhere.app.feature.sessions.SessionBatchUpdate
 import com.agentsanywhere.app.model.AgentDevice
@@ -88,6 +89,12 @@ fun DeviceDetailScreen(
     agentsRefreshKey: Long = 0L,
     onBulkSetSessionsArchived: suspend (List<String>, Boolean) -> Result<SessionBatchUpdate>,
     onArchiveAllDeviceSessions: suspend (String, Boolean, String) -> Result<List<AgentSession>>,
+    /**
+     * Capability probe for the "watch this device's screen" entry. Null (the default) hides
+     * the entry, which keeps the page usable before the remote desktop route is wired.
+     */
+    onLoadRemoteDesktopEntry: suspend (String) -> RemoteDesktopEntryState? = { null },
+    onOpenRemoteDesktop: (AgentDevice) -> Unit = {},
 ) {
     val context = LocalContext.current
     val detail = remember(state, selectedDeviceId) { state.deviceDetailState(selectedDeviceId) }
@@ -114,6 +121,15 @@ fun DeviceDetailScreen(
     var pendingArchiveAll by remember { mutableStateOf<DeviceArchiveAllRequest?>(null) }
     val settingsDeviceId = detail.device?.takeIf { it.hasDeviceSettings }?.id
     var deviceSettingsState by remember(settingsDeviceId) { mutableStateOf(DeviceSettingsState()) }
+    val remoteDesktopDevice = detail.device
+    var remoteDesktopEntry by remember(remoteDesktopDevice?.id) {
+        mutableStateOf<RemoteDesktopEntryState?>(null)
+    }
+    LaunchedEffect(remoteDesktopDevice?.id, remoteDesktopDevice?.online) {
+        val id = remoteDesktopDevice?.id ?: return@LaunchedEffect
+        remoteDesktopEntry = null
+        remoteDesktopEntry = onLoadRemoteDesktopEntry(id)
+    }
 
     fun showToast(message: String, isError: Boolean = false) {
         scope.launch {
@@ -246,6 +262,13 @@ fun DeviceDetailScreen(
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 lineHeight = 17.sp,
+                            )
+                        }
+                    }
+                    if (remoteDesktopEntry is RemoteDesktopEntryState.Available) {
+                        item("remote-desktop") {
+                            DeviceRemoteDesktopEntry(
+                                onClick = { detail.device?.let(onOpenRemoteDesktop) },
                             )
                         }
                     }

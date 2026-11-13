@@ -32,6 +32,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.agentsanywhere.app.api.RemoteDesktopApi
+import com.agentsanywhere.app.feature.remotedesktop.loadRemoteDesktopEntry
 import com.agentsanywhere.app.feature.auth.WebLoginViewModel
 import com.agentsanywhere.app.feature.devices.DeviceAgentOperations
 import com.agentsanywhere.app.feature.devices.hasConfiguredDeviceAgents
@@ -103,6 +105,12 @@ internal fun AgentsAnywhereNavHost(
     userId: String,
     role: String,
     serverUrl: String,
+    /** Bearer token of the signed-in session, used by the remote desktop route. */
+    authorizationToken: String = "",
+    /** App-wide remote desktop API; null keeps the entry hidden in tests that do not wire it. */
+    remoteDesktopApi: RemoteDesktopApi? = null,
+    /** Opens the viewer for [AgentDevice]; the caller remembers the connector id. */
+    onOpenRemoteDesktop: (AgentDevice) -> Unit = {},
     appearanceMode: String,
     languageMode: String,
     sidebarViewMode: String,
@@ -397,7 +405,30 @@ internal fun AgentsAnywhereNavHost(
                             agentsRefreshKey = agentSetupFinishedCount,
                             onBulkSetSessionsArchived = onBulkSetSessionsArchived,
                             onArchiveAllDeviceSessions = onArchiveAllDeviceSessions,
+                            onLoadRemoteDesktopEntry = { connectorId ->
+                                remoteDesktopApi?.let { api ->
+                                    loadRemoteDesktopEntry(
+                                        api = api,
+                                        serverUrl = serverUrl,
+                                        authorizationToken = authorizationToken,
+                                        connectorId = connectorId,
+                                    )
+                                }
+                            },
+                            onOpenRemoteDesktop = onOpenRemoteDesktop,
                         )
+                        AppDestination.RemoteDesktop -> {
+                            val device = sessionsState.devices.firstOrNull { it.id == selectedDeviceId }
+                            RemoteDesktopRoute(
+                                connectorId = selectedDeviceId,
+                                deviceName = device?.name ?: stringResource(R.string.remote_desktop_entry),
+                                serverUrl = serverUrl,
+                                authorizationToken = authorizationToken,
+                                remoteDesktopApi = remoteDesktopApi ?: remember { RemoteDesktopApi() },
+                                backDestination = deviceDetailReturnDestination,
+                                navigate = navigate,
+                            )
+                        }
                         AppDestination.Devices -> DevicesScreen(
                             state = sessionsState,
                             isRefreshing = isRefreshingSessions,

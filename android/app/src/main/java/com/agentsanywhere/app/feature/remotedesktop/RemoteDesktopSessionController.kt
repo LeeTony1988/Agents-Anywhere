@@ -15,6 +15,7 @@ import com.agentsanywhere.app.api.RemoteDesktopStats
 import com.agentsanywhere.app.api.RemoteDesktopTokenRole
 import com.agentsanywhere.app.feature.remotedesktop.input.RELEASE_REASON_HANDOFF
 import com.agentsanywhere.app.feature.remotedesktop.input.RELEASE_REASON_MANUAL
+import com.agentsanywhere.app.feature.remotedesktop.input.RELEASE_REASON_PAGE_HIDE
 import com.agentsanywhere.app.feature.remotedesktop.input.RemoteInputEncoder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -131,6 +132,7 @@ class RemoteDesktopSessionController(
     private var mediaEventsJob: Job? = null
     private var mediaConnected = false
     private var controlling = false
+    private var inputPaused = false
 
     /** Current session snapshot, if the create call succeeded. */
     val session: RemoteDesktopSession?
@@ -168,6 +170,7 @@ class RemoteDesktopSessionController(
         grant = null
         controlling = false
         mediaConnected = false
+        inputPaused = false
         _trackSize.value = null
         _stats.value = null
         _state.value = RemoteDesktopSessionState.Creating
@@ -237,6 +240,23 @@ class RemoteDesktopSessionController(
         stream?.requestKeyframe()
     }
 
+    /**
+     * Pauses input while the viewer is in the background or the screen is locked
+     * (`docs/remote-desktop.md` section 8.3). Exactly one `release_all{reason:"pagehide"}`
+     * goes out per pause: the activity can deliver several lifecycle events for one
+     * background transition, and the host only needs one reset.
+     */
+    fun pauseInput() {
+        if (inputPaused) return
+        inputPaused = true
+        releaseInput(RELEASE_REASON_PAGE_HIDE)
+    }
+
+    /** Resumes publishing input; the next [pauseInput] sends a fresh `release_all`. */
+    fun resumeInput() {
+        inputPaused = false
+    }
+
     /** Ends the session on the Server, then releases media and timers. Idempotent. */
     suspend fun end(reason: RemoteDesktopEndReason = RemoteDesktopEndReason.ClientEnded) {
         val sessionId = currentSession?.id
@@ -268,6 +288,7 @@ class RemoteDesktopSessionController(
         if (mediaConnected) runCatching { media.disconnect() }
         mediaConnected = false
         controlling = false
+        inputPaused = false
         currentSession = null
         participantId = null
         grant = null

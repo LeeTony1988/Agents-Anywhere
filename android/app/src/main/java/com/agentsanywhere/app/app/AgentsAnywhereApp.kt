@@ -132,6 +132,7 @@ fun AgentsAnywhereApp(
         )
     }
     val realtimeApi = remember(apiClient) { RealtimeApi(client = apiClient) }
+    val remoteDesktopApi = remember(apiClient) { com.agentsanywhere.app.api.RemoteDesktopApi(client = apiClient) }
     val announcementsApi = remember(apiClient) { AnnouncementsApi(apiClient) }
     val realtimeClientId = remember(context) { RealtimeClientIdStore(context).readOrCreate() }
     val authController = remember(context, sessionStore, apiClient) {
@@ -534,6 +535,12 @@ fun AgentsAnywhereApp(
         userId = authController.savedUserId(),
         role = authController.savedRole(),
         serverUrl = authController.savedServerUrl(),
+        authorizationToken = sessionStore.readAccessToken(),
+        remoteDesktopApi = remoteDesktopApi,
+        onOpenRemoteDesktop = { device ->
+            selectedDeviceId = device.id
+            destinationName = AppDestination.RemoteDesktop.name
+        },
         appearanceMode = appearanceMode,
         languageMode = languageMode,
         sidebarViewMode = sidebarViewMode,
