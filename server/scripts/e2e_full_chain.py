@@ -556,7 +556,97 @@ def main() -> int:
             return 1
         log(f"consent denied and recorded: {denied_sessions[0]['id']}")
 
-        log("OK: full chain verified (control with consent disabled, and consent-first denial)")
+        log("phase 3: realtime control socket of a view session")
+
+        status, settings = http(
+            "PATCH",
+            f"{base}/connectors/{connector_id}/device-settings",
+            token=token,
+            body={
+                "remoteDesktopRequireConsent": False,
+                "remoteDesktopAllowUnattended": True,
+            },
+        )
+        if status not in (200, 201):
+            log(f"FAIL: restore settings -> {status} {settings}")
+            return 1
+
+        status, view_created = http(
+            "POST",
+            f"{base}/remote-desktop/sessions",
+            token=token,
+            body={
+                "connectorId": connector_id,
+                "mode": "view",
+                "displayId": "0",
+                "client": {"platform": "web", "appVersion": "2.3.0"},
+            },
+        )
+        if status not in (200, 201):
+            log(f"FAIL: view session -> {status} {view_created}")
+            return 1
+        view_session = view_created["session"]["id"]
+        view_participant = view_created["session"]["participants"][0]["participantId"]
+
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            status, current = http(
+                "GET", f"{base}/remote-desktop/sessions/{view_session}", token=token
+            )
+            if status == 200 and current["session"]["state"] == "live":
+                break
+            time.sleep(1)
+        else:
+            log("FAIL: view session never became live")
+            return 1
+
+        status, ticket = http(
+            "POST",
+            f"{base}/remote-desktop/sessions/{view_session}/ticket",
+            token=token,
+            body={"participantId": view_participant},
+        )
+        if status not in (200, 201):
+            log(f"FAIL: ticket -> {status} {ticket}")
+            return 1
+        ws_ticket = ticket.get("ticket") or ticket.get("wsTicket")
+        if not ws_ticket:
+            log(f"FAIL: no ticket in {ticket}")
+            return 1
+
+        ws_url = (
+            f"ws://127.0.0.1:{port}/api/v2/remote-desktop/sessions/{view_session}/ws"
+            f"?ticket={ws_ticket}"
+        )
+        events = asyncio.run(drain_socket(ws_url, seconds=8))
+        kinds = [event.get("type") for event in events]
+        log(f"ws events: {kinds[:10]}")
+        if "remote_desktop.subscribed" not in kinds:
+            log("FAIL: no subscribed event on the control socket")
+            return 1
+        if not any(
+            kind in ("remote_desktop.session.updated", "remote_desktop.stats.updated")
+            for kind in kinds
+        ):
+            log("FAIL: no session event reached the socket")
+            return 1
+        if not any(kind == "remote_desktop.stats.updated" for kind in kinds):
+            # The stub capture has no moving content, so the host may never
+            # produce a stats sample; `session.updated` already proves the path.
+            log("note: no stats sample arrived (stub capture)")
+
+        status, ended_view = http(
+            "POST",
+            f"{base}/remote-desktop/sessions/{view_session}/end",
+            token=token,
+            body={"reason": "client_ended"},
+        )
+        if status not in (200, 201):
+            log(f"FAIL: end view session -> {status} {ended_view}")
+            return 1
+        log("view session events and shutdown verified")
+
+        log("OK: full chain verified (control, consent denial, realtime socket)")
         return 0
     finally:
         for process in (connector_process, server_process):
@@ -574,6 +664,37 @@ def main() -> int:
             log(f"logs in {log_dir}")
         if not os.environ.get("AGENT_E2E_KEEP_LOGS"):
             shutil.rmtree(workdir, ignore_errors=True)
+
+
+async def drain_socket(url: str, *, seconds: float) -> list[dict]:
+    """Collect JSON frames from the session control socket for a few seconds."""
+
+    import websockets
+
+    events: list[dict] = []
+    try:
+        async with websockets.connect(url, open_timeout=10) as socket:
+            deadline = time.time() + seconds
+            while time.time() < deadline:
+                try:
+                    raw = await asyncio.wait_for(
+                        socket.recv(), timeout=max(0.1, deadline - time.time())
+                    )
+                except TimeoutError:
+                    break
+                if isinstance(raw, str):
+                    try:
+                        events.append(json.loads(raw))
+                    except json.JSONDecodeError:
+                        continue
+            # `ping` is a presence touch and has no reply; `request_keyframe`
+            # is best effort. Neither may break the socket.
+            await socket.send(json.dumps({"type": "ping", "at": int(time.time())}))
+            await socket.send(json.dumps({"type": "request_keyframe"}))
+            await asyncio.sleep(0.5)
+    except Exception as error:  # noqa: BLE001 - reported by the caller
+        log(f"ws error: {error!r}")
+    return events
 
 
 async def list_participants(room: str) -> dict:
