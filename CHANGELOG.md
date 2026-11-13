@@ -22,6 +22,7 @@
 
 ### 远程桌面
 
+- 远程桌面启动现在有明确的时间预算：Server 给 Connector 的启动请求带 8 秒上限，超时后 Connector 会停止屏幕主机并返回 `rd_host_timeout`，不会出现「客户端已经报错、被控设备还在共享」的状态。（[a73f23a3](https://github.com/anywhere-labs/Agents-Anywhere/commit/a73f23a3)、[bf4b16e3](https://github.com/anywhere-labs/Agents-Anywhere/commit/bf4b16e3)）
 - 部署时如果 `AGENT_SERVER_SECRET` 为空、仍是默认值或短于 32 个字符，Server 启动会打印一条警告：此时任何人拿到仓库里的默认值就能伪造访问令牌，保存的密钥也无法加密。（[PENDING_SECRET](https://github.com/anywhere-labs/Agents-Anywhere/commit/49329b47)）
 - Web、Desktop 和 Android 的远程桌面页都可以保存当前画面（截图）；文件名带设备与时间，格式跟随服务端实际返回的类型（JPEG 或 PNG）。Android 保存后会打开系统分享面板。（[12898c32](https://github.com/anywhere-labs/Agents-Anywhere/commit/12898c32)、[PENDING_ANDROID](https://github.com/anywhere-labs/Agents-Anywhere/commit/98643ac7)）
 - Web 和 Desktop 点设备页的「看这台设备屏幕」现在真的会打开远程桌面页面（之前会回到首页），可以在页面里申请控制、看到控制租约倒计时并释放控制。（[e67ac161](https://github.com/anywhere-labs/Agents-Anywhere/commit/e67ac161)、[c605f565](https://github.com/anywhere-labs/Agents-Anywhere/commit/c605f565)）

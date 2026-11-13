@@ -472,9 +472,9 @@ RemoteDesktopSession
 | `remoteDesktop.screenshot` | `{displayId?, maxWidth?, format, quality}` | `{dataBase64, width, height, capturedAt, format}` |
 | `remoteDesktop.input` | `{sessionId, events}` | `{appliedSeq}`（兜底通道） |
 
-`remoteDesktop.start` 可以带 `deadlineMs`（1..=300000）：这是**调用方给的预算**，Connector 用它包住
-整次启动（含拉起 host 与握手），超时后主动 `host.stop` 并返回 `rd_host_timeout`，避免 Server 已经放弃
-等待、host 却还在发布。
+`remoteDesktop.start` 带 `deadlineMs`（1..=300000）：这是**调用方给的预算**，Connector 用它包住整次
+启动（含拉起 host 与握手），超时后主动 `host.stop` 并返回 `rd_host_timeout`，避免 Server 已经放弃
+等待、host 却还在发布。Server 固定发 8 秒（低于它自己的 10 秒 RPC 超时）。
 
 Connector → Server 通知：`remoteDesktop.state/stats/displays/consent/clipboard/error`，经现有
 notification 管道入库；**未知的 `remoteDesktop.*` 必须返回 `unsupported_notification`**，不能静默
