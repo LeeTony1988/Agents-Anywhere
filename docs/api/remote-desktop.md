@@ -201,7 +201,11 @@ POST /api/v2/remote-desktop/sessions/{sessionId}/screenshot
 ```
 
 只在已建立的会话里可用；每设备 2 s 一次，超出返回 `429 remote_desktop_rate_limited`。
-响应 `{width, height, capturedAt, dataBase64}`。未建会话的预览接口不存在（v1 不做）。
+响应 `{width, height, capturedAt, dataBase64, format}`。
+
+`format` 是 `dataBase64` 的**实际**图片类型（`jpeg` 或 `png`，当前两者都是 8 位灰度）：请求里的
+`format` 只是提示，host 可能回退（未知值一律 PNG），所以客户端必须按响应里的 `format` 解码。
+未建会话的预览接口不存在（v1 不做）。
 
 ## 状态机
 
@@ -226,6 +230,34 @@ starting → awaiting_consent → live → degraded ⇄ live
 
 计时器：consent 60 s、controller lease 60 s、interrupted 90 s、idle 15 min、单会话最长 8 h。
 PG 是会话事实源，多 worker 用条件更新推进；Redis 只做缓存与事件扇出。
+
+## LiveKit webhook
+
+```text
+POST /api/v2/internal/livekit/webhook
+Authorization: Bearer <LiveKit 签发的 JWT>
+```
+
+由自托管 LiveKit 回调，用来确认 `track_published` / `participant_left` 等事件：Server 用它把会话从
+`starting` 推进到 `live`，并在 host 掉线时进入 `interrupted`。请求体不重写（反代需原样透传），
+校验 `Authorization` 里的签名与 `sha256` 声明；属于内部端点，不需要用户令牌。
+
+## Connector → Server 通知
+
+Connector 通过 `connector/ws` 发 `{"type":"notification","method":…}`，Server 侧处理器见
+`services/remote_desktop_notifications.py`。
+
+| 通知 | 时机 | Server 的处理 |
+| --- | --- | --- |
+| `remoteDesktop.hostInfo` | host 就绪/显示器变化后 | 刷新 host facts 缓存与能力 |
+| `remoteDesktop.state` | host 状态机变化 | 推进会话状态（`starting`/`live`/`interrupted`…）并广播 WS 事件 |
+| `remoteDesktop.consent` | 本机确认结果 | `granted` → 会话转 `live`；`denied` → 结束并记 `consent_denied` |
+| `remoteDesktop.stats` | host 每 2 s 上报 | 合并最新一份，转成 `remote_desktop.stats.updated` |
+| `remoteDesktop.displays` | 显示器插拔 | 更新 `host-info` 的 `displays` |
+| `remoteDesktop.error` | host 报错 | 记 `error` 字段并广播 `remote_desktop.error` |
+| `remoteDesktop.start/stop/updateQuality/control.grant/requestKeyframe/screenshot` | RPC 结果 | 由 RPC 通道处理，不是通知 |
+
+未知的 `remoteDesktop.*` 通知返回 `unsupported_notification`，旧 Server 不会因此报错退出。
 
 ## 错误格式
 
