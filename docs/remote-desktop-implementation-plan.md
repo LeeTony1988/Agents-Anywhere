@@ -43,7 +43,7 @@
 
 | 条目 | 已做到 | 缺口 |
 | --- | --- | --- |
-| RD-P1-16 集成测试 | 单 worker + 真实 PostgreSQL 的远程桌面/设备设置/架构边界 130+ 用例通过 | 两 worker + Redis 的并发链路由 `RemoteDesktopMaintenanceLoop` 的条件更新单测覆盖，但没有真实双进程集成测试 |
+| RD-P1-16 集成测试 | 单 worker + 真实 PostgreSQL 的远程桌面/设备设置/架构边界 130+ 用例通过；`test_remote_desktop_maintenance_db.py` 用两个独立的 maintenance loop 服务实例跑同一个 PG，证明过期会话只被推进一次、结束原因不被覆盖、活跃列表只含未结束会话 | 仍是同进程内的两个实例，没有真正两个 Server 进程 + Redis 的端到端集成 |
 | RD-P2-03 host 定位/校验 | 按 `screen-host/<platform>-<arch>/` 解析并对开发目录回退；`scripts/package.ps1` 写出 `manifest.json`（platform/arch/version/sha256/features），Connector 校验 sha256，篡改或不匹配时以 `rd_host_integrity` 拒绝启动；`hostPath` 只来自本地配置 | 没有 Authenticode / codesign / teamID 校验（只有哈希完整性） |
 | RD-P2-04 Supervisor | 三路 PIPE、4 MiB 限制、env allowlist、Windows Job Object、POSIX guardian、ping 3 次重启、退避限流都有实现与单测 | 「kill host / kill Connector / 注销用户」三场景未在真机矩阵里验证；stderr 轮转未做 |
 | RD-P2-05 退出清理 | `run_forever` finally 调用 `aclose()` → release-all/stop/terminate；stdin EOF 与 shutdown 帧已覆盖 | Ctrl-C/SIGTERM 信号路径未接（依赖 Connector 进程退出时的 finally） |
