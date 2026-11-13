@@ -362,6 +362,32 @@ async def drive_browser(
                     break
                 await asyncio.sleep(1)
             evidence["videoWidth"] = int(current or 0) if isinstance(current, int) else 0
+            evidence["modifierBar"] = "CTRL" in text
+
+            # Release the lease again; the toolbar must fall back to "申请控制".
+            released = await _evaluate(
+                socket,
+                counter,
+                """
+                (() => {
+                  const buttons = Array.from(document.querySelectorAll('button'));
+                  const target = buttons.find((b) => b.innerText.includes('释放控制'));
+                  if (!target) return false;
+                  target.click();
+                  return true;
+                })()
+                """,
+            )
+            evidence["clickedRelease"] = bool(released)
+            deadline = time.time() + timeout
+            released_ok = False
+            while time.time() < deadline:
+                text = str(await _evaluate(socket, counter, "document.body.innerText") or "")
+                if "申请控制" in text and "控制中" not in text:
+                    released_ok = True
+                    break
+                await asyncio.sleep(1)
+            evidence["releasedControl"] = released_ok
             await _evaluate(socket, counter, "window.localStorage.clear(); 'ok'")
         return evidence
     finally:
@@ -761,6 +787,9 @@ def main() -> int:
                                 "controlling",
                                 "videoWidth",
                                 "video",
+                                "modifierBar",
+                                "clickedRelease",
+                                "releasedControl",
                             )
                         }
                     )
@@ -773,6 +802,12 @@ def main() -> int:
                     return 1
                 if not evidence.get("videoWidth"):
                     log("FAIL: the browser never decoded a video frame")
+                    return 1
+                if not evidence.get("modifierBar"):
+                    log("FAIL: the modifier bar did not appear while controlling")
+                    return 1
+                if not evidence.get("releasedControl"):
+                    log("FAIL: releasing control did not restore the request button")
                     return 1
                 participants = asyncio.run(list_participants(room))
                 identities = sorted(
