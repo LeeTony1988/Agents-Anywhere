@@ -132,7 +132,7 @@
       "direction": "egress",
       "model": "RemoteDesktopScreenshotResponse",
       "path": "schemas/screenshot-response.schema.json",
-      "sha256": "7b6ddf13e7680968894ee663afc96610fe4a9168464c288fc67624c927c5bdb3",
+      "sha256": "ce44e60a2eb793da67ccbf40e7f483229cf7122e2d8d5075f90fbe738177aed3",
       "slug": "screenshot-response",
       "transport": "http"
     },

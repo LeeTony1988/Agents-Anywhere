@@ -203,8 +203,9 @@ POST /api/v2/remote-desktop/sessions/{sessionId}/screenshot
 只在已建立的会话里可用；每设备 2 s 一次，超出返回 `429 remote_desktop_rate_limited`。
 响应 `{width, height, capturedAt, dataBase64, format}`。
 
-`format` 是 `dataBase64` 的**实际**图片类型（`jpeg` 或 `png`，当前两者都是 8 位灰度）：请求里的
-`format` 只是提示，host 可能回退（未知值一律 PNG），所以客户端必须按响应里的 `format` 解码。
+`format` 是 `dataBase64` 的**实际**图片类型（`jpeg` 或 `png`，当前两者都是 8 位灰度），已写进
+`screenshot-response` schema：请求里的 `format` 只是提示，host 可能回退（未知值一律 PNG），所以客户端
+必须按响应里的 `format` 解码。
 未建会话的预览接口不存在（v1 不做）。
 
 ## 状态机

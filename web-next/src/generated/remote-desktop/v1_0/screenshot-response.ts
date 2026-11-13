@@ -9,5 +9,9 @@ export interface RemoteDesktopScreenshotResponse {
   height: number
   capturedAt: string
   dataBase64: string
+  /**
+   * Actual image type of dataBase64. The request's `format` is only a hint: the host may fall back to PNG.
+   */
+  format?: "jpeg" | "png"
   [k: string]: unknown
 }

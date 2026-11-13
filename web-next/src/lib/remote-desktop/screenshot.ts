@@ -8,7 +8,11 @@ import type { RemoteDesktopScreenshotResponse } from "@/generated/remote-desktop
  * decode by the returned format instead of assuming the one it asked for.
  */
 
-export type RemoteScreenshot = RemoteDesktopScreenshotResponse & { format?: string | null };
+/**
+ * The generated response type already carries `format` (`"jpeg" | "png"`), because
+ * the schema made it a first-class field: the request's format is only a hint.
+ */
+export type RemoteScreenshot = RemoteDesktopScreenshotResponse;
 
 export function screenshotMimeType(format: string | null | undefined): string {
   const normalized = (format ?? "").trim().toLowerCase();
