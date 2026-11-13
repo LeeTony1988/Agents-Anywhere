@@ -786,9 +786,9 @@ AGENT_E2E_STATIC_DIR=$PWD/web-next/out python -X utf8 server/scripts/e2e_full_ch
 ```
 
 `--browser` 会启动本机 Chrome/Edge 无头实例（CDP 直连，不依赖 Playwright），预置登录态后打开
-`#/device/<connectorId>/remote`，断言页面渲染出「远程桌面」、点「申请控制」后出现「控制中」、浏览器里的
-`<video>` 解出真实画面（合成采集下为 640×360、`readyState=4`），并检查 LiveKit 房间里多出 `viewer:`
-参与者。合成采集由 `AA_SCREEN_HOST_SYNTHETIC_CAPTURE` 打开（Connector 侧是
+`#/device/<connectorId>/remote`，断言页面渲染出「远程桌面」、点「申请控制」后出现「控制中」与修饰键条、浏览器里的
+`<video>` 解出真实画面（合成采集下为 640×360、`readyState=4`）、点「释放控制」后回到「申请控制」，
+并检查 LiveKit 房间里多出 `viewer:` 参与者。合成采集由 `AA_SCREEN_HOST_SYNTHETIC_CAPTURE` 打开（Connector 侧是
 `AGENT_CONNECTOR_REMOTE_DESKTOP_SYNTHETIC_CAPTURE`），所以没有交互式桌面也能验证整条媒体链路。`--web-hold-seconds N` 则只是把会话挂着，方便人手点一遍。
 这条路径暴露过一个只在真浏览器里才出现的问题（`device-remote` 不在页面白名单里，路由被回退成
 首页），已在 Web 与 Desktop 两端修复并补了回归测试。注意 `cargo test`/`cargo build`（不带 `--features livekit`）会覆盖
