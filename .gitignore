@@ -57,3 +57,5 @@ _reference/*
 **/node_modules
 
 screen-host/target/
+
+screen-host/dist/

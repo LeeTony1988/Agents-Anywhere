@@ -8,6 +8,7 @@ from connector.local.remote_desktop.host import (
     ScreenHostBusy,
     ScreenHostCrashLoop,
     ScreenHostError,
+    ScreenHostIntegrityError,
     ScreenHostNotInstalled,
     ScreenHostNotRunning,
     ScreenHostProtocolError,
@@ -18,6 +19,7 @@ from connector.local.remote_desktop.host import (
     current_arch,
     current_platform,
     default_screen_host_path,
+    verify_screen_host,
 )
 from connector.local.remote_desktop.policy import (
     ConsentPrompt,
@@ -34,6 +36,7 @@ __all__ = [
     "ScreenHostBusy",
     "ScreenHostCrashLoop",
     "ScreenHostError",
+    "ScreenHostIntegrityError",
     "ScreenHostNotInstalled",
     "ScreenHostNotRunning",
     "ScreenHostProtocolError",
@@ -46,4 +49,7 @@ __all__ = [
     "current_platform",
     "default_screen_host_path",
     "request_consent",
+    "verify_screen_host",
 ]
+
+

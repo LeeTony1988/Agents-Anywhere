@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import inspect
 import json
 import os
@@ -60,6 +61,12 @@ class ScreenHostError(RuntimeError):
 
 class ScreenHostNotInstalled(ScreenHostError):
     code = "rd_host_not_installed"
+
+
+class ScreenHostIntegrityError(ScreenHostNotInstalled):
+    """The installed host does not match its packaged manifest."""
+
+    code = "rd_host_integrity"
 
 
 class ScreenHostNotRunning(ScreenHostError):
@@ -160,6 +167,7 @@ def default_screen_host_path(
         candidate = Path(root) / f"{resolved_platform}-{resolved_arch}" / executable
         searched.append(str(candidate))
         if candidate.is_file():
+            verify_screen_host(candidate)
             return candidate
     # A developer checkout can run the locally built binary directly. Packaged
     # installs never reach this branch because their resources are found above.
@@ -172,6 +180,40 @@ def default_screen_host_path(
         "screen host is not installed for "
         f"{resolved_platform}-{resolved_arch}; searched: {', '.join(searched)}"
     )
+
+
+def verify_screen_host(path: Path) -> None:
+    """Reject a packaged host whose bytes do not match ``manifest.json``.
+
+    ``screen-host/scripts/package.ps1`` writes ``{platform, arch, version,
+    sha256}`` next to the binary. A missing manifest is not an error: developer
+    checkouts and older bundles predate it, and they are already outside the
+    packaged roots. A present but mismatched manifest means the binary was
+    tampered with or only half-copied, and must not run.
+    """
+
+    manifest_path = path.parent / "manifest.json"
+    if not manifest_path.is_file():
+        return
+    try:
+        manifest = json.loads(manifest_path.read_text("utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ScreenHostIntegrityError(
+            f"screen host manifest is unreadable: {manifest_path}"
+        ) from exc
+    expected = manifest.get("sha256") if isinstance(manifest, dict) else None
+    if not isinstance(expected, str) or not expected:
+        raise ScreenHostIntegrityError(
+            f"screen host manifest has no sha256: {manifest_path}"
+        )
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise ScreenHostIntegrityError(f"screen host is unreadable: {path}") from exc
+    if digest != expected.lower():
+        raise ScreenHostIntegrityError(
+            f"screen host checksum mismatch: {path} ({digest} != {expected.lower()})"
+        )
 
 
 @dataclass(slots=True)
@@ -1496,3 +1538,4 @@ def _normalize_permissions(value: Any) -> dict[str, str]:
         else "not_determined"
         for key in ("screenRecording", "accessibility", "inputMonitoring")
     }
+
