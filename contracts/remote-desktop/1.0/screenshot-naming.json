@@ -1,0 +1,37 @@
+{
+  "description": "File name clients give a screenshot downloaded from a remote desktop session. The rule is shared by Web, Desktop and Android so the same capture keeps the same name everywhere; each client's test suite reads this file.",
+  "version": 1,
+  "rule": "remote-<connectorId>-<yyyyMMddHHmmss>.<jpg|png>; the label keeps [A-Za-z0-9._-] and turns every other run of characters into '-', is trimmed of '-' and cut to 48 characters; the timestamp is the first 14 digits of capturedAt (UTC) or 'unknown'; the extension follows the format the server actually returned, PNG when absent.",
+  "cases": [
+    {
+      "connectorId": "conn_abc",
+      "capturedAt": "2026-11-13T18:30:00Z",
+      "format": "jpeg",
+      "fileName": "remote-conn_abc-20261113183000.jpg"
+    },
+    {
+      "connectorId": "conn_abc",
+      "capturedAt": "2026-11-13T18:30:00Z",
+      "format": "png",
+      "fileName": "remote-conn_abc-20261113183000.png"
+    },
+    {
+      "connectorId": "My Device / dev:1",
+      "capturedAt": "2026-11-13T18:30:00.123Z",
+      "format": "png",
+      "fileName": "remote-My-Device-dev-1-20261113183000.png"
+    },
+    {
+      "connectorId": "",
+      "capturedAt": "",
+      "format": null,
+      "fileName": "remote-remote-unknown.png"
+    },
+    {
+      "connectorId": "conn_abc",
+      "capturedAt": "2026-11-13T18:30:00Z",
+      "format": "webp",
+      "fileName": "remote-conn_abc-20261113183000.png"
+    }
+  ]
+}

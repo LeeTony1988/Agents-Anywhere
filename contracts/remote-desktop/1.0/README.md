@@ -100,3 +100,21 @@ uv run --with jsonschema --with referencing python contracts/remote-desktop/1.0/
 `validate.py` 会检查：schema 本身是合法 Draft 2020-12、`$id`/版本/方向元数据、manifest 的
 slug/path/sha256/direction、每个 schema 至少一份 valid fixture、valid 必须通过、invalid 必须被拒、
 fixtures 必须按 `<kind>/<slug>/` 组织。修改任何 schema 后必须重新生成 manifest 哈希，否则 CI 红。
+
+
+## 截图文件命名（`screenshot-naming.json`）
+
+截图不是 wire 契约的一部分，但客户端保存文件时要用同一套命名，否则同一个画面在 Web、Desktop 和
+Android 上会得到不同文件名。`screenshot-naming.json` 记录了规则与用例：
+
+```text
+remote-<connectorId>-<yyyyMMddHHmmss>.<jpg|png>
+```
+
+- 标签只保留 `[A-Za-z0-9._-]`，其它连续字符替换成 `-`，去掉首尾 `-`，最多 48 个字符；
+- 时间取 `capturedAt` 里前 14 位数字（UTC），缺失时用 `unknown`；
+- 扩展名跟随**服务端实际返回**的 `format`，缺失时按 PNG。
+
+三端各自的测试都读取这份文件（`web-next/test`、`desktop-workbench/renderer/test`、
+`android/app/src/test`），改动实现会让另外两端的测试一起失败。`validate.py` 不校验该文件。
+

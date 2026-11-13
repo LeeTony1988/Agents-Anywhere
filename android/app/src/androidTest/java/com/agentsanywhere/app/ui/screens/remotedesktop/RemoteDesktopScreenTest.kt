@@ -39,6 +39,7 @@ class RemoteDesktopScreenTest {
     private val media = FakeMediaSession()
     private var ended = 0
     private var retried = 0
+    private var screenshots = 0
     private var quality = RemoteDesktopQualityPreset.Default
 
     @Test
@@ -121,6 +122,7 @@ class RemoteDesktopScreenTest {
                     onEnd = { ended += 1 },
                     onTakeControl = {},
                     onReleaseControl = {},
+                    onScreenshot = { screenshots += 1 },
                     onQualityChange = { quality = it },
                     onNoticeShown = {},
                 )
