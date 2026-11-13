@@ -267,6 +267,11 @@ pub trait InputSink: Send {
     /// the sink is responsible for OS-level injection.
     fn apply(&mut self, event: &InputEvent) -> Result<(), InputEventError>;
 
+    /// Tell the sink which display the session captures, so normalized
+    /// coordinates land on that monitor instead of the primary one.
+    /// Default is a no-op for sinks that have no notion of a display.
+    fn set_display(&mut self, _display: Option<&crate::capture::DisplayInfo>) {}
+
     /// Release every currently pressed key and mouse button (anti stuck-key).
     /// Returns `(released_keys, released_buttons)`.
     fn release_all(&mut self) -> (Vec<String>, Vec<String>);

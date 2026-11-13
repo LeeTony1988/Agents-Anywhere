@@ -13,10 +13,13 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYBD_EVENT_FLAGS,
     KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
     MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE,
-    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT, MOUSE_EVENT_FLAGS,
-    VIRTUAL_KEY,
+    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL,
+    MOUSEINPUT, MOUSE_EVENT_FLAGS, VIRTUAL_KEY,
 };
-use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetSystemMetrics, SM_CXSCREEN, SM_CXVIRTUALSCREEN, SM_CYSCREEN, SM_CYVIRTUALSCREEN,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+};
 
 use super::{
     ClipboardAction, InputEvent, InputEventError, InputSink, KeyAction, KeyMod, PointerAction,
@@ -117,14 +120,51 @@ fn button_name(b: PointerButton) -> String {
     .to_string()
 }
 
+/// Axis-aligned screen rectangle in virtual-desktop pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DisplayRect {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+/// Map normalized `[0,1]` coordinates inside `display` onto the 0..65535
+/// absolute space of the whole virtual desktop (`MOUSEEVENTF_VIRTUALDESK`).
+///
+/// Pure so the multi-monitor arithmetic can be unit-tested without Windows.
+fn virtual_desktop_absolute(
+    display: DisplayRect,
+    virtual_origin_x: i32,
+    virtual_origin_y: i32,
+    virtual_width: i32,
+    virtual_height: i32,
+    x: f64,
+    y: f64,
+) -> (i32, i32) {
+    const ABS_MAX: f64 = 65535.0;
+    let width = display.width.max(1) as f64;
+    let height = display.height.max(1) as f64;
+    let pixel_x = display.x as f64 + x.clamp(0.0, 1.0) * (width - 1.0);
+    let pixel_y = display.y as f64 + y.clamp(0.0, 1.0) * (height - 1.0);
+    let span_x = (virtual_width.max(2) - 1) as f64;
+    let span_y = (virtual_height.max(2) - 1) as f64;
+    let abs_x = ((pixel_x - virtual_origin_x as f64) / span_x * ABS_MAX)
+        .round()
+        .clamp(0.0, ABS_MAX) as i32;
+    let abs_y = ((pixel_y - virtual_origin_y as f64) / span_y * ABS_MAX)
+        .round()
+        .clamp(0.0, ABS_MAX) as i32;
+    (abs_x, abs_y)
+}
+
 /// `SendInput`-based input sink for Windows.
 #[derive(Debug, Default)]
 pub struct WindowsInputSink {
     pressed_keys: BTreeSet<String>,
     pressed_buttons: BTreeSet<PointerButton>,
-    /// Primary display size in pixels, refreshed on each pointer move.
-    screen_width: i32,
-    screen_height: i32,
+    /// The display this session captures; `None` means the primary display.
+    display: Option<DisplayRect>,
 }
 
 impl WindowsInputSink {
@@ -132,11 +172,25 @@ impl WindowsInputSink {
         Self::default()
     }
 
-    fn refresh_screen_size(&mut self) {
-        // SAFETY: GetSystemMetrics with SM_CXSCREEN/SM_CYSCREEN takes no pointer params.
+    /// Virtual desktop bounds: `(x, y, width, height)`.
+    fn virtual_desktop() -> (i32, i32, i32, i32) {
+        // SAFETY: GetSystemMetrics takes no pointer arguments.
         unsafe {
-            self.screen_width = GetSystemMetrics(SM_CXSCREEN);
-            self.screen_height = GetSystemMetrics(SM_CYSCREEN);
+            let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            let width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+            let height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+            if width <= 0 || height <= 0 {
+                // Headless or detached desktop: fall back to the primary screen.
+                (
+                    0,
+                    0,
+                    GetSystemMetrics(SM_CXSCREEN).max(1),
+                    GetSystemMetrics(SM_CYSCREEN).max(1),
+                )
+            } else {
+                (x, y, width, height)
+            }
         }
     }
 
@@ -221,13 +275,25 @@ impl WindowsInputSink {
         }
     }
 
-    /// Normalized [0,1] display coordinates mapped to `MOUSEEVENTF_ABSOLUTE` units
-    /// (0..65535 across the primary display's width/height). v1 is single-display.
+    /// Normalized [0,1] coordinates of the captured display mapped onto the
+    /// virtual desktop's 0..65535 `MOUSEEVENTF_ABSOLUTE` space.
     fn normalized_to_absolute(&self, x: f64, y: f64) -> (i32, i32) {
-        const ABS_MAX: f64 = 65535.0;
-        let px = (x.clamp(0.0, 1.0) * ABS_MAX).round() as i32;
-        let py = (y.clamp(0.0, 1.0) * ABS_MAX).round() as i32;
-        (px, py)
+        let (virtual_x, virtual_y, virtual_width, virtual_height) = Self::virtual_desktop();
+        let display = self.display.unwrap_or(DisplayRect {
+            x: 0,
+            y: 0,
+            width: unsafe { GetSystemMetrics(SM_CXSCREEN).max(1) },
+            height: unsafe { GetSystemMetrics(SM_CYSCREEN).max(1) },
+        });
+        virtual_desktop_absolute(
+            display,
+            virtual_x,
+            virtual_y,
+            virtual_width,
+            virtual_height,
+            x,
+            y,
+        )
     }
 }
 
@@ -244,10 +310,14 @@ impl InputSink for WindowsInputSink {
                 if !x.is_finite() || !y.is_finite() {
                     return Err(InputEventError::InvalidField("x/y"));
                 }
-                self.refresh_screen_size();
                 let (abs_x, abs_y) = self.normalized_to_absolute(*x, *y);
                 // Move first so down/up land on the right position.
-                self.send_mouse(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, 0, abs_x, abs_y);
+                self.send_mouse(
+                    MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+                    0,
+                    abs_x,
+                    abs_y,
+                );
                 match (action, button) {
                     (PointerAction::Down, Some(b)) => {
                         self.send_mouse(button_down_flag(*b), 0, 0, 0);
@@ -374,17 +444,78 @@ mod tests {
 
     #[test]
     fn normalized_to_absolute_clamps() {
-        let sink = WindowsInputSink {
-            screen_width: 1920,
-            screen_height: 1080,
-            ..WindowsInputSink::new()
+        // Display equals the virtual desktop, so the mapping spans the full range.
+        let display = DisplayRect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
         };
-        let (x, y) = sink.normalized_to_absolute(0.0, 0.0);
-        assert_eq!((x, y), (0, 0));
-        let (x, y) = sink.normalized_to_absolute(1.0, 1.0);
-        assert_eq!((x, y), (65535, 65535));
-        let (x, _) = sink.normalized_to_absolute(2.0, -1.0);
+        assert_eq!(
+            virtual_desktop_absolute(display, 0, 0, 1920, 1080, 0.0, 0.0),
+            (0, 0)
+        );
+        assert_eq!(
+            virtual_desktop_absolute(display, 0, 0, 1920, 1080, 1.0, 1.0),
+            (65535, 65535)
+        );
+        let (x, _) = virtual_desktop_absolute(display, 0, 0, 1920, 1080, 2.0, -1.0);
         assert_eq!(x, 65535);
+    }
+
+    #[test]
+    fn second_monitor_maps_into_its_own_rectangle() {
+        // 1920x1080 primary at (0,0) plus a 2560x1440 monitor to its right.
+        let display = DisplayRect {
+            x: 1920,
+            y: 0,
+            width: 2560,
+            height: 1440,
+        };
+        let (virtual_x, virtual_y, virtual_width, virtual_height) = (0, 0, 4480, 1440);
+        // The left edge of the second monitor is at 1920/4479 of the virtual desktop.
+        assert_eq!(
+            virtual_desktop_absolute(
+                display,
+                virtual_x,
+                virtual_y,
+                virtual_width,
+                virtual_height,
+                0.0,
+                0.0
+            ),
+            (28093, 0)
+        );
+        let (right, bottom) = virtual_desktop_absolute(
+            display,
+            virtual_x,
+            virtual_y,
+            virtual_width,
+            virtual_height,
+            1.0,
+            1.0,
+        );
+        assert_eq!(right, 65535);
+        assert_eq!(bottom, 65535);
+    }
+
+    #[test]
+    fn virtual_desktop_absolute_handles_tiny_spans() {
+        let display = DisplayRect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        };
+        // A degenerate display and virtual desktop must still produce in-range values.
+        assert_eq!(
+            virtual_desktop_absolute(display, 0, 0, 1, 1, 0.5, 0.5),
+            (0, 0)
+        );
+        assert_eq!(
+            virtual_desktop_absolute(display, 0, 0, 1, 1, 5.0, -5.0),
+            (0, 0)
+        );
     }
 
     #[test]

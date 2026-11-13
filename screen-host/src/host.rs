@@ -244,6 +244,9 @@ impl Host {
             self.emit_error(&session_id, ERR_CAPTURE_FAILED, &e.to_string());
             return response_err(id, ERR_CAPTURE_FAILED, e.to_string());
         }
+        // Normalized pointer coordinates belong to the captured display, not
+        // necessarily the primary one.
+        self.sink.set_display(display.as_ref());
 
         let media: Option<MediaGrant> = params
             .get("media")
