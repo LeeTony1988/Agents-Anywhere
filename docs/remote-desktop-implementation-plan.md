@@ -32,6 +32,12 @@
   在 Prometheus 里配置，本文档给出建议阈值。
 - **P6-06 版本与发布、P6-07 文档**：各端版本统一 2.3.0，`docs/releases/2.3.0.md`、`CHANGELOG.md`
   未发布节、`docs/api/remote-desktop.md` 与 `docs/remote-desktop.md` 已更新。
+- **P4-01 依赖与 Manifest、P4-02 API/DTO**：`io.livekit:livekit-android:2.30.0`（官方 Maven Central）；
+  manifest 用 `tools:node="remove"` 去掉 `RECORD_AUDIO`/`MODIFY_AUDIO_SETTINGS`/`BLUETOOTH`/
+  `FOREGROUND_SERVICE_MEDIA_PROJECTION` 与 LiveKit 的 `ScreenCaptureService`（Android 只观看）；
+  `api/RemoteDesktopApi.kt` + `RemoteDesktopDtos.kt` 覆盖全部远程桌面端点，未知枚举值降级保留原文，
+  `ApiException` 透传 `detail.details`；token 续签时机与入口可见性是纯函数并有单测。
+  `:app:compileDebugKotlin`、`:app:testDebugUnitTest`（239 用例）、`:app:assembleDebug` 全部通过。
 
 ### 部分完成（不能按已完成计）
 
@@ -51,7 +57,7 @@
 | RD-P2-16 host 端到端 | 真实 `aa-screen-host.exe` 的 start/info/screenshot/releaseAll/stop 联调通过 | 真 LiveKit + viewer 的完整链路、kill host 后 Connector 上报、残留 participant 检查未做 |
 | RD-P3-07 Desktop 同步与原生层 | Web 实现已复制到 renderer；Connector local state → Electron `DesktopConnectorState` → 悬浮窗/菜单栏项/窗口内提示条；提示条可直接结束共享 | macOS status item 未在 macOS 验证；preload 只暴露「打开工作台」，没有「从悬浮窗直接结束共享」的 IPC |
 | RD-P3-09 端到端 | 各端 headless 检查通过 | Web/Desktop + 真 Server + 真 host + 真 LiveKit 的 Playwright/手动清单未执行 |
-| RD-P4 Android | 无 | 本机没有 Android SDK，无法编译验证，未开始 |
+| RD-P4 Android | P4-01/02 已完成（编译 + 239 单测 + assembleDebug 通过，APK 基线 101.8 MiB） | P4-03…07 未做：LiveKit Room/渲染、手势与输入、会话 WS、控制权 UI、真机验收都还没有；`androidTest` 需要模拟器/真机 |
 | RD-P5 iOS | 无 | Windows 环境没有 Xcode，无法编译验证，未开始 |
 | RD-P6-01 Docker LiveKit | `docker/livekit.yaml` + compose `remote-desktop` profile（webhook、prometheus、TURN 证书挂载、Redis 服务名） | 未真实 `docker compose up` 验证（本机无 Docker daemon） |
 | RD-P6-02 端口与 TLS | 文档写明端口/`use_external_ip`/TURN 443 方案 | 真实 4G/企业网 ICE 未验证 |
@@ -60,8 +66,9 @@
 
 ### 未开始
 
-- **P4 Android（RD-P4-01…07）**、**P5 iOS（RD-P5-01…07）**：当前环境缺少 Android SDK 与 Xcode，
-  既不能编译也不能真机验收。实现前需要先补齐工具链，再按各条目验收标准执行。
+- **P4 Android 剩余条目（RD-P4-03…07）**：工具链已就绪（见[开发指南](development.md#android-工具链)），
+  但观看页、手势/输入、生命周期、控制权 UI 与真机验收还没实现。
+- **P5 iOS（RD-P5-01…07）**：当前是 Windows 环境，没有 Xcode，既不能编译也不能真机验收。
 
 ## 0. 审查结论
 
