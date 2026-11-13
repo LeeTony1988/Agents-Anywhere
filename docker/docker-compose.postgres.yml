@@ -62,6 +62,24 @@ services:
       - "3478:3478/udp"
       - "6789:6789"
 
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    restart: unless-stopped
+    # Opt-in: enable with `--profile monitoring` after turning the Server's
+    # metrics endpoint on, so the default deployment exposes nothing extra.
+    profiles: ["monitoring"]
+    depends_on:
+      - livekit
+      - server-next
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts:/etc/prometheus/alerts:ro
+      # Write the scrape token next to the compose file; the Server only checks
+      # it when AGENT_SERVER_METRICS_TOKEN is set.
+      - ${AGENT_SERVER_METRICS_TOKEN_FILE:-../.local-dev/metrics-token}:/etc/prometheus/metrics-token:ro
+    ports:
+      - "9090:9090"
+
   migrate-next:
     build:
       context: ..
@@ -102,6 +120,8 @@ services:
       AGENT_SERVER_LIVEKIT_URL: ${AGENT_SERVER_LIVEKIT_URL:-}
       AGENT_SERVER_LIVEKIT_API_KEY: ${AGENT_SERVER_LIVEKIT_API_KEY:-aa_remote_desktop}
       AGENT_SERVER_LIVEKIT_API_SECRET: ${AGENT_SERVER_LIVEKIT_API_SECRET:-}
+      AGENT_SERVER_METRICS_ENABLED: ${AGENT_SERVER_METRICS_ENABLED:-false}
+      AGENT_SERVER_METRICS_TOKEN: ${AGENT_SERVER_METRICS_TOKEN:-}
     volumes:
       - agents-anywhere-files-next:/data
     ports:

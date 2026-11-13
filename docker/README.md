@@ -69,23 +69,21 @@ Ready-to-copy samples live next to this file:
 [`Caddyfile`](./Caddyfile). Both keep the session WebSocket open for an hour,
 pass the LiveKit webhook body through untouched, and raise the body limit.
 
-Remote desktop metrics are off by default. To scrape them:
+Remote desktop metrics are off by default. To scrape them, turn the endpoint on
+and start the `monitoring` profile (Prometheus is opt-in, so the default stack
+exposes nothing extra):
 
 ```bash
 AGENT_SERVER_METRICS_ENABLED=true \
 AGENT_SERVER_METRICS_TOKEN=change-me-scrape-token \
-docker compose -f docker/docker-compose.postgres.yml up -d server-next
+docker compose -f docker/docker-compose.postgres.yml \
+  --profile remote-desktop --profile monitoring up -d
+
+printf '%s' "$AGENT_SERVER_METRICS_TOKEN" > .local-dev/metrics-token   # mounted read-only
 ```
 
-```yaml
-# prometheus.yml
-scrape_configs:
-  - job_name: agents-anywhere
-    authorization: { credentials: change-me-scrape-token }
-    static_configs:
-      - targets: ["server:8000"]
-    metrics_path: /api/v2/metrics
-```
+Prometheus then listens on `:9090` and reads [`prometheus.yml`](./prometheus.yml)
+plus [`alerts/remote-desktop.rules.yml`](./alerts/remote-desktop.rules.yml).
 
 The endpoint returns `text/plain; version=0.0.4`; counters are per worker and
 carry an `instance` label, so aggregate with `sum by (...)` when the Server runs
