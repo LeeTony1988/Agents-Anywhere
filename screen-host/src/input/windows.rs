@@ -7,6 +7,7 @@
 //!   (startup panic-release, `host.stop`, EOF and crash paths all funnel here).
 
 use std::collections::BTreeSet;
+use std::sync::atomic::Ordering;
 
 use log::warn;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -165,6 +166,9 @@ pub struct WindowsInputSink {
     pressed_buttons: BTreeSet<PointerButton>,
     /// The display this session captures; `None` means the primary display.
     display: Option<DisplayRect>,
+    /// Set once we logged that the OS rejected injection, so a locked screen
+    /// does not spam the log on every event.
+    warned_rejected: std::sync::atomic::AtomicBool,
 }
 
 impl WindowsInputSink {
@@ -194,6 +198,29 @@ impl WindowsInputSink {
         }
     }
 
+    /// Inject one batch and report whether the OS accepted all of it.
+    ///
+    /// `SendInput` returns 0 when the caller is not on the active input
+    /// desktop (locked screen, UAC secure desktop, disconnected RDP session).
+    /// That used to look like "clicks do nothing" with no diagnostic at all.
+    fn inject(&self, inputs: &[INPUT]) -> bool {
+        // SAFETY: `inputs` is a well-formed slice of INPUT records.
+        let sent = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
+        if sent as usize == inputs.len() {
+            self.warned_rejected.store(false, Ordering::Relaxed);
+            return true;
+        }
+        if !self.warned_rejected.swap(true, Ordering::Relaxed) {
+            warn!(
+                "SendInput accepted {sent}/{} events; the input desktop is not ours \
+                 (locked screen, secure desktop or disconnected session). \
+                 Further failures are not logged.",
+                inputs.len()
+            );
+        }
+        false
+    }
+
     fn send_mouse(&self, flags: MOUSE_EVENT_FLAGS, data: i32, dx: i32, dy: i32) {
         let input = INPUT {
             r#type: INPUT_MOUSE,
@@ -208,10 +235,7 @@ impl WindowsInputSink {
                 },
             },
         };
-        // SAFETY: `input` is a well-formed single-element INPUT array.
-        unsafe {
-            let _ = SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-        }
+        let _ = self.inject(&[input]);
     }
 
     fn send_key(&self, vk: u16, key_up: bool) {
@@ -232,10 +256,7 @@ impl WindowsInputSink {
                 },
             },
         };
-        // SAFETY: `input` is a well-formed single-element INPUT array.
-        unsafe {
-            let _ = SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-        }
+        let _ = self.inject(&[input]);
     }
 
     fn send_unicode(&self, c: char, key_up: bool) {
@@ -262,16 +283,10 @@ impl WindowsInputSink {
         if encoded.len() > 1 {
             // Surrogate pair: second unit carries KEYEVENTF_UNICODE too.
             let inputs = [mk_input(encoded[0]), mk_input(encoded[1])];
-            // SAFETY: `inputs` is a well-formed two-element INPUT array.
-            unsafe {
-                let _ = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
-            }
+            let _ = self.inject(&inputs);
         } else {
             let inputs = [mk_input(encoded[0])];
-            // SAFETY: `inputs` is a well-formed single-element INPUT array.
-            unsafe {
-                let _ = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
-            }
+            let _ = self.inject(&inputs);
         }
     }
 
