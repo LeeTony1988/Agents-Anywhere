@@ -62,25 +62,44 @@ adb logcat -d | Select-String 'VideoReceiveStreamInterface stats'
 | --- | --- | --- | --- |
 | Web | ✅ 已验证（canvas 取样 avg ≈ 224–235） | ✅ | 申请/释放控制、截图下载都验证过 |
 | Desktop | ✅ 复用 Web 的同一实现（同一份 `remote-desktop-view.tsx` 与媒体代码） | ✅ | Electron 内嵌同一渲染器 |
-| Android | ⚠️ 解码正常（`frameWidth 1280`、`total_bps > 0`）、画面黑 | ✅ 控制中、Lease、修饰键、截图按钮均正常 | 渲染层问题，见下节 |
+| Android | ✅ 已验证（模拟器）：走 bitmap 回退路径后画面可见 | ✅ | WebRTC 的 GL sink 在模拟器上「收到帧但不画」，因此增加了回退渲染，见 §5.3 |
 
-## 5. Android 渲染迁移步骤（逐步，每步都要能回退）
+## 5. Android 渲染：结论与迁移步骤
 
-1. **已完成**：确认帧到达 → `adb logcat` 里 `VideoReceiveStreamInfo stats` 的 `frameWidth/frameHeight`
-   非 0、`total_bps > 0`；`screencap` 里视频区域黑。
-2. **已完成**：把 `renderer.init(eglContext, null)` 从 `AndroidView(update)` 移到 `factory`，避免
-   renderer 在挂载前未初始化而丢帧。
-3. **进行中**：把 `TextureViewRenderer` 换成 `SurfaceViewRenderer`（独立 GL Surface）。
-   ⚠️ `Activity`/`screencap` 抓不到 SurfaceView 内容，**这一步只能靠人眼看模拟器窗口**。
-4. 若仍黑：在 `LiveKitMediaSession` 里关闭硬件解码（`RoomOptions(videoCodec = VideoCodec.VP8)` +
-   `VideoTrack.setPlayoutDelay`/`peerConnectionFactory` 的 decoder 选择），对比 VP8 软件解码。
-5. 若软件解码正常：在 `APP_PAGES`/会话页面加一条「兼容模式」开关，默认硬件解码，黑屏时降级。
-6. 每一步都要跑一遍第 3 节的 **Web 复验**，确认没有把 Web/Desktop 的画面弄坏（这两个端不共用
-   Android 的渲染代码，但共用服务端与媒体链路）。
+### 5.1 结论（2026-11-14 实测）
 
-## 6. 相关提交
+WebRTC 的 GL sink 在模拟器上**收到帧但不画**。证据链：
 
-- `cc175d93`：host 默认启用真实 WGC 采集；`requestKeyframe` 改为按需重发布
-- `d4019b18`：单一采集所有权、空闲重发、截图复用缓存帧、采集线程 COM 初始化
-- `5d6c41c6`：Android 首帧迟到时自动请求关键帧
-- `066d4b92b`/`a73f23a3` 等：启动预算、错误映射等前置修复
+1. 同一个 `VideoTrack` 上挂一个诊断 `VideoSink`，逐帧把 I420 的 Y 平面取平均：
+   `sink frame #1 1280x540 meanLuma=173.2` —— 解码出来的是真实桌面，不是黑帧；
+2. 同一时刻界面仍是黑块；`renderer.init()` 没有抛异常，`SurfaceView` 图层也在 SurfaceFlinger 里；
+3. 同一路流在浏览器里取样 `avg 224`，说明发布端与 SFU 正常。
+
+因此问题定位在 **WebRTC EglRenderer 在本机模拟器上不出图**，与应用逻辑无关（TextureView / SurfaceView、
+init 在 factory / 在 update、host GPU / swiftshader 四种组合都是黑）。
+
+### 5.2 已实现的回退渲染
+
+`LiveKitMediaSession` 在 tee sink 里把解码后的 I420 转成 `Bitmap`（每 250 ms 一帧，`step=2` 降采样），
+`RemoteDesktopScreen` 在 `compatFrame` 有值时直接画 `Image`，否则用原来的 GL sink。启用条件：
+
+- **模拟器**（`Build.FINGERPRINT/MODEL/PRODUCT/HARDWARE` 命中 `generic`/`sdk`/`ranchu` 等）默认开启；
+- 真机上如果 GL sink 3 秒内没有收到 `onFirstFrameRendered()`，自动切到回退路径。
+
+代价：回退路径是 CPU 转码 + Compose 位图绘制（约 4 fps），只用于兼容，不作为默认体验。
+
+### 5.3 迁移步骤（每步都能回退）
+
+1. ✅ 确认帧到达（诊断 sink 的 `meanLuma`）。
+2. ✅ `renderer.init` 提前到 `AndroidView(factory)`。
+3. ✅ 实现并验证 bitmap 回退（模拟器上可见真实桌面）。
+4. ⬜ 真机验证：确认真机走 GL 路径（日志 `GL sink drew its first frame`）且画面正常；若某些真机也不出图，
+   回退路径会自动接管。
+5. ⬜ 用 `onFirstFrameRendered` + 帧计数做更精细的健康度判断，替代「3 秒无首帧」这个粗粒度阈值。
+6. ⬜ 回退路径加节流/分辨率设置项（当前固定 250 ms、1/2 降采样）。
+
+### 5.4 不要动的东西
+
+- Web / Desktop 的渲染与媒体代码（`web-next/src/components/remote-desktop/*`、`desktop-workbench/renderer`
+  的同名文件）与本次 Android 改动无关，改完 Android 必须复跑 §3 的 Web 取样；
+- 服务端的 capability/媒体逻辑未改。
