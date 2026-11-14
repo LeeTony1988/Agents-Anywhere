@@ -473,7 +473,11 @@ def start_server(db_url: str, port: int, log_path: Path) -> subprocess.Popen:
         "AGENT_SERVER_DB_URL": db_url,
         "AGENT_SERVER_SECRET": E2E_SECRET,
         "AGENT_SERVER_REMOTE_DESKTOP_ENABLED": "true",
-        "AGENT_SERVER_LIVEKIT_URL": "ws://127.0.0.1:7880",
+        # Clients receive this URL in the media token, so an emulator or a phone on
+        # the LAN needs the host-reachable address instead of loopback.
+        "AGENT_SERVER_LIVEKIT_URL": os.environ.get(
+            "AGENT_E2E_LIVEKIT_URL", "ws://127.0.0.1:7880"
+        ),
         "AGENT_SERVER_LIVEKIT_API_KEY": "devkey",
         "AGENT_SERVER_LIVEKIT_API_SECRET": "secret",
         "AGENT_SERVER_REMOTE_DESKTOP_SWEEP_SECONDS": "1",
