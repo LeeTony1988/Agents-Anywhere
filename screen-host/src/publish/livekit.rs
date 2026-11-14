@@ -27,8 +27,13 @@ use super::{MediaGrant, Publisher, Stats};
 use crate::capture::Frame;
 use crate::config::Quality;
 
+/// How often the screen track is re-published to refresh its keyframe.
+const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(20);
+
 enum Command {
     Frame(Frame),
+    /// Re-publish the video track so the encoder emits a fresh keyframe.
+    Refresh,
     Stop,
 }
 
@@ -106,7 +111,7 @@ impl Publisher for LiveKitPublisher {
                     width: width.max(2),
                     height: height.max(2),
                 };
-                let source = NativeVideoSource::new(resolution, true);
+                let mut source = NativeVideoSource::new(resolution.clone(), true);
                 let track = LocalVideoTrack::create_video_track(
                     "screen",
                     livekit::webrtc::video_source::RtcVideoSource::Native(source.clone()),
@@ -121,19 +126,57 @@ impl Publisher for LiveKitPublisher {
                     }),
                     ..Default::default()
                 };
-                if let Err(error) = room
+                let mut publication = match room
                     .local_participant()
-                    .publish_track(LocalTrack::Video(track), options)
+                    .publish_track(LocalTrack::Video(track), options.clone())
                     .await
                 {
-                    warn!("LiveKit publish_track failed session={session}: {error}");
-                    let _ = room.close().await;
-                    return;
-                }
+                    Ok(publication) => publication,
+                    Err(error) => {
+                        warn!("LiveKit publish_track failed session={session}: {error}");
+                        let _ = room.close().await;
+                        return;
+                    }
+                };
                 info!("LiveKit publisher connected session={session}");
                 let mut frame_count = 0u32;
                 let mut last_report = std::time::Instant::now();
-                while let Some(command) = receiver.recv().await {
+                // The Rust SDK exposes no keyframe request, and the encoder only
+                // emits one when a track starts. A viewer that joins later would
+                // stare at a frozen picture forever, so the track is re-published
+                // on demand (`requestKeyframe`) and at a slow background cadence.
+                let mut refresh_at = tokio::time::Instant::now() + REFRESH_INTERVAL;
+                while let Some(command) = tokio::select! {
+                    command = receiver.recv() => command,
+                    _ = tokio::time::sleep_until(refresh_at) => Some(Command::Refresh),
+                } {
+                    if matches!(command, Command::Refresh) {
+                        // Unpublish + publish is the only way to force a keyframe
+                        // with this SDK version: a fresh publication starts with one.
+                        let sid = publication.sid();
+                        if let Err(error) = room.local_participant().unpublish_track(&sid).await {
+                            warn!("LiveKit unpublish failed session={session}: {error}");
+                        }
+                        // A source can back a single publication, so the refresh
+                        // installs a new one; capture keeps targeting `source`.
+                        source = NativeVideoSource::new(resolution.clone(), true);
+                        let track = LocalVideoTrack::create_video_track(
+                            "screen",
+                            livekit::webrtc::video_source::RtcVideoSource::Native(source.clone()),
+                        );
+                        match room
+                            .local_participant()
+                            .publish_track(LocalTrack::Video(track), options.clone())
+                            .await
+                        {
+                            Ok(refreshed) => publication = refreshed,
+                            Err(error) => {
+                                warn!("LiveKit re-publish failed session={session}: {error}");
+                            }
+                        }
+                        refresh_at = tokio::time::Instant::now() + REFRESH_INTERVAL;
+                        continue;
+                    }
                     match command {
                         Command::Frame(frame) => {
                             let mut buffer = I420Buffer::with_strides(
@@ -169,6 +212,7 @@ impl Publisher for LiveKitPublisher {
                             }
                         }
                         Command::Stop => break,
+                        Command::Refresh => {}
                     }
                 }
                 let _ = room.close().await;
@@ -193,10 +237,12 @@ impl Publisher for LiveKitPublisher {
     }
 
     fn request_keyframe(&mut self) -> bool {
-        // Best-effort (decisions §1.1.4): the Rust SDK does not expose a
-        // reliable subscriber-side keyframe request; never claim success.
-        warn!("requestKeyframe is best-effort and unsupported by the LiveKit Rust SDK");
-        false
+        // The SDK has no keyframe API, so the track is re-published instead: a
+        // new publication always starts with a keyframe.
+        let Some(sender) = self.sender.as_ref() else {
+            return false;
+        };
+        matches!(sender.try_send(Command::Refresh), Ok(()))
     }
 
     fn stats(&self) -> Stats {
