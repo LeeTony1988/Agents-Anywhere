@@ -80,6 +80,9 @@ pub struct Host {
     publisher: Arc<Mutex<Box<dyn Publisher>>>,
     stream_stop: Option<Arc<AtomicBool>>,
     stream_thread: Option<JoinHandle<()>>,
+    /// Newest frame the stream thread published; screenshots reuse it so the host
+    /// never opens a second WGC/DXGI session on the same output.
+    last_frame: Arc<Mutex<Option<Frame>>>,
     /// Timestamps of recently applied input events, for the 120 events/s budget.
     input_window: std::collections::VecDeque<std::time::Instant>,
     #[cfg(windows)]
@@ -112,6 +115,7 @@ impl Host {
             publisher: Arc::new(Mutex::new(publisher)),
             stream_stop: None,
             stream_thread: None,
+            last_frame: Arc::new(Mutex::new(None)),
             input_window: std::collections::VecDeque::new(),
             #[cfg(windows)]
             overlay: None,
@@ -258,10 +262,19 @@ impl Host {
             })
             .unwrap_or(stream_width * 9 / 16)
             .max(1);
-        if let Err(e) = self.capture.start(&self.display_id) {
-            self.state = HostState::Crashed;
-            self.emit_error(&session_id, ERR_CAPTURE_FAILED, &e.to_string());
-            return response_err(id, ERR_CAPTURE_FAILED, e.to_string());
+        // Only one WGC/DXGI session per output is allowed in a process, so the
+        // screenshot source stays closed whenever the stream will own the capture.
+        let has_media = params
+            .get("media")
+            .map(|value| !value.is_null())
+            .unwrap_or(false);
+        if !has_media {
+            if let Err(e) = self.capture.start(&self.display_id) {
+                self.state = HostState::Crashed;
+                self.emit_error(&session_id, ERR_CAPTURE_FAILED, &e.to_string());
+                return response_err(id, ERR_CAPTURE_FAILED, e.to_string());
+            }
+        } else {
         }
         // Normalized pointer coordinates belong to the captured display, not
         // necessarily the primary one.
@@ -461,9 +474,11 @@ impl Host {
         true
     }
 
-    /// Pull frames from a second capture source and hand them to the publisher.
-    /// A separate source keeps the on-demand screenshot path independent from
-    /// the streaming path and avoids contending on one WGC session.
+    /// Pull frames from a capture source and hand them to the publisher.
+    ///
+    /// The stream owns the only capture session while it runs: Windows allows one
+    /// WGC/DXGI duplication per output, so the screenshot path reuses the newest
+    /// frame instead of opening a second one.
     fn start_stream(&mut self) {
         self.stop_stream();
         let mut capture = new_capture_source(self.quality);
@@ -474,12 +489,43 @@ impl Host {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_flag = Arc::clone(&stop);
         let publisher = Arc::clone(&self.publisher);
+        let last_frame = Arc::clone(&self.last_frame);
         self.stream_thread = Some(std::thread::spawn(move || {
+            // WinRT capture needs a COM apartment on the creating thread.
+            #[cfg(windows)]
+            {
+                use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+                // SAFETY: paired with the CoUninitialize at the end of this thread.
+                unsafe {
+                    let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+                }
+            }
+            let mut last_publish = std::time::Instant::now();
             while !stop_flag.load(Ordering::Relaxed) {
                 match capture.next_frame() {
                     Ok(frame) => {
                         if let Ok(mut publisher) = publisher.lock() {
                             publisher.publish_frame(&frame);
+                        }
+                        if let Ok(mut slot) = last_frame.lock() {
+                            *slot = Some(frame.clone());
+                        }
+                        last_publish = std::time::Instant::now();
+                    }
+                    Err(error) if error.to_string().contains("timed out") => {
+                        // DXGI only yields a frame when the desktop changes; an idle
+                        // screen is not an error. Re-publish the newest frame once a
+                        // second so a viewer that joins later still gets a picture.
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        if last_publish.elapsed() >= std::time::Duration::from_secs(1) {
+                            if let Ok(slot) = last_frame.lock() {
+                                if let Some(frame) = slot.as_ref() {
+                                    if let Ok(mut publisher) = publisher.lock() {
+                                        publisher.publish_frame(frame);
+                                    }
+                                }
+                            }
+                            last_publish = std::time::Instant::now();
                         }
                     }
                     Err(error) => {
@@ -489,6 +535,14 @@ impl Host {
                 }
             }
             capture.stop();
+            #[cfg(windows)]
+            {
+                use windows::Win32::System::Com::CoUninitialize;
+                // SAFETY: matches the CoInitializeEx at the top of this thread.
+                unsafe {
+                    CoUninitialize();
+                }
+            }
         }));
         self.stream_stop = Some(stop);
     }
@@ -587,6 +641,22 @@ impl Host {
         format: ScreenshotFormat,
         quality: u8,
     ) -> Result<serde_json::Value, CaptureError> {
+        // A live stream already owns the capture; reuse its newest frame instead of
+        // opening a second WGC/DXGI session (Windows allows one per output).
+        let cached = self
+            .last_frame
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+            .filter(|frame| frame.width > 0 && frame.height > 0);
+        if let Some(frame) = cached {
+            return screenshot_from_frame(frame, max_width, format, quality);
+        }
+        if self.state == HostState::Running {
+            return Err(CaptureError::Failed(
+                "screen capture is streaming; no frame buffered yet".to_string(),
+            ));
+        }
         // Single-frame capture path: try a fresh probe capture of the requested
         // display; fall back to draining one frame from the active capture source
         // when a session is already running.
@@ -598,17 +668,7 @@ impl Host {
             }
             Err(e) => return Err(e),
         };
-        let (data, width, height) = match format {
-            ScreenshotFormat::Png => encode_png(&frame, max_width)?,
-            ScreenshotFormat::Jpeg => encode_jpeg(&frame, max_width, quality)?,
-        };
-        Ok(serde_json::json!({
-            "dataBase64": data,
-            "width": width,
-            "height": height,
-            "capturedAt": frame.captured_at,
-            "format": format.as_str()
-        }))
+        screenshot_from_frame(frame, max_width, format, quality)
     }
 
     fn emit_state(&mut self, session_id: &str, state: &str) {
@@ -898,4 +958,24 @@ pub fn stats_event(session_id: &str, stats: &Stats) -> HostControlMessage {
             "encoder": stats.encoder
         }),
     )
+}
+
+/// Encode one captured frame as PNG/JPEG and build the `host.screenshot` payload.
+fn screenshot_from_frame(
+    frame: Frame,
+    max_width: u32,
+    format: ScreenshotFormat,
+    quality: u8,
+) -> Result<serde_json::Value, CaptureError> {
+    let (data, width, height) = match format {
+        ScreenshotFormat::Png => encode_png(&frame, max_width)?,
+        ScreenshotFormat::Jpeg => encode_jpeg(&frame, max_width, quality)?,
+    };
+    Ok(serde_json::json!({
+        "dataBase64": data,
+        "width": width,
+        "height": height,
+        "capturedAt": frame.captured_at,
+        "format": format.as_str()
+    }))
 }
