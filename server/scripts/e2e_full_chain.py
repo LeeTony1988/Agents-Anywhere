@@ -153,7 +153,7 @@ async def create_user_and_token(db_url: str) -> tuple[str, str]:
                 raise SystemExit("no e2e user and bootstrap refused to create one")
             user = existing
         user_id = user.userId
-        return user_id, create_user_access_token(user_id, expires_in=3600)
+        return user_id, create_user_access_token(user_id, expires_in=6 * 3600)
     finally:
         await store.close()
 
