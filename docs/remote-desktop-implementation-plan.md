@@ -398,7 +398,8 @@ Windows 用 Authenticode 签 `aa-screen-host.exe` 与桌面安装包，macOS 用
 
 | 现象 | 原因 | 下一步 |
 | --- | --- | --- |
-| 打包出的 host 只发黑帧 | `build-livekit.ps1` 原来只开 `livekit`，没有 `wgc`；`capture/windows.rs` 在缺 feature 时发「blank stub frame」 | 已在构建脚本里默认加 `wgc`（可用 `AA_SCREEN_HOST_NO_WGC=1` 关掉） |
-| 同一 Connector 第二次 `host.start` 报 `capture failed: DXGI duplication` | 停止采集时没有释放 DXGI duplication，下一次 start 复用了旧会话 | 在 `WgcCapture::stop` 里显式 drop duplication，并加一条「start→stop→start」的集成测试 |
-| Android 端收到并解码了画面，但 TextureView 画出来是黑的 | 待定：EGL 初始化时机或 TextureView 渲染路径 | 切换 `SurfaceViewRenderer` 或把 `renderer.init` 移到 view 挂载后；用 Web 端同房间对照 |
+| ~~打包出的 host 只发黑帧~~ | `build-livekit.ps1` 只开 `livekit`，没开 `wgc`，`capture/windows.rs` 因此发「blank stub frame」 | **已修**：构建脚本默认 `livekit,wgc`（`AA_SCREEN_HOST_NO_WGC=1` 可关） |
+| ~~截图与流各开一路采集~~ | Windows 每个输出只允许一个 WGC/DXGI duplication，第二路失败（`DXGI duplication: E_INVALIDARG`），流线程直接退出 → 客户端永远拿不到帧 | **已修**：有 media 时不再打开截图采集；流线程缓存最新帧，截图复用它 |
+| ~~静止桌面时流线程退出~~ | DXGI 只在画面变化时出帧，`AcquireNextFrame` 超时被当成致命错误 | **已修**：超时视为空闲，每秒重发一次最新帧，后加入的观看者也能拿到画面 |
+| ~~Android 黑屏~~ | 根因同上（发布的就是黑帧），不是 TextureView | **已修**：Web 端已用 canvas 取样验证真实像素（avg 224/255） |
 | 结束会话后设备页入口不再出现，需要退出重进 | 设备页只在 `device.id`/`online` 变化时重新探测能力 | 会话结束后触发一次重新探测 |
