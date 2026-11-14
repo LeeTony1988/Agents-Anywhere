@@ -466,6 +466,30 @@ impl Host {
             Err(_) => return,
         };
         for packet in packets {
+            if packet.topic == "aa.pointer" {
+                // Lossy high-rate pointer plane: absolute position, 12-byte frame.
+                if let Some(expected) = self.controller_identity.as_deref() {
+                    if !expected.is_empty() && packet.from != expected {
+                        continue;
+                    }
+                }
+                let Ok(frame) = crate::pointer::decode_pointer_frame(&packet.payload) else {
+                    continue;
+                };
+                if !self.allow_input_at(std::time::Instant::now()) {
+                    continue;
+                }
+                let event = InputEvent::Pointer {
+                    seq: frame.seq,
+                    action: crate::input::PointerAction::Move,
+                    x: frame.x as f64 / u16::MAX as f64,
+                    y: frame.y as f64 / u16::MAX as f64,
+                    button: None,
+                    display: 0,
+                };
+                let _ = self.sink.apply(&event);
+                continue;
+            }
             if packet.topic != "aa.input" {
                 continue;
             }
