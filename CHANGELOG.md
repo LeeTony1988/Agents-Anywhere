@@ -22,6 +22,7 @@
 
 ### 远程桌面
 
+- Android 看远程桌面时可以横屏放大：旋转手机（或点顶部的全屏按钮）进入横屏，顶部栏和系统栏都会隐藏，画面按比例铺满整屏；左上角按钮退出全屏。（[94fffd61](https://github.com/anywhere-labs/Agents-Anywhere/commit/94fffd61)）
 - 远程桌面能看到真实桌面了：之前打包的屏幕主机没有启用系统采集，一直在发送空白画面；同时修掉了「截图和串流抢同一个采集会话」「桌面静止时串流自己退出」两个问题，后加入的观看者也能立即拿到画面。（[d4019b18](https://github.com/anywhere-labs/Agents-Anywhere/commit/d4019b18)）
 - Android 设备页会正常显示「看这台设备屏幕」入口：之前网络请求跑在主线程上被系统拦下，入口被静默隐藏，进到观看页也起不来会话；现在入口、会话、控制权申请与截图都可用。（[108832a6](https://github.com/anywhere-labs/Agents-Anywhere/commit/108832a6)）
 - 只有观看权限、或设备关闭了剪贴板时，远程桌面入口不再跟着一起消失（入口跟随「查看」能力，控制与剪贴板是页面内的开关）。（[108832a6](https://github.com/anywhere-labs/Agents-Anywhere/commit/108832a6)）

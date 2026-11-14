@@ -103,3 +103,11 @@ init 在 factory / 在 update、host GPU / swiftshader 四种组合都是黑）�
 - Web / Desktop 的渲染与媒体代码（`web-next/src/components/remote-desktop/*`、`desktop-workbench/renderer`
   的同名文件）与本次 Android 改动无关，改完 Android 必须复跑 §3 的 Web 取样；
 - 服务端的 capability/媒体逻辑未改。
+
+### 5.5 横屏（放大）观看
+
+- 旋转设备即进入横屏全屏：顶部栏不渲染、系统栏隐藏（`RemoteDesktopImmersiveBars`），画面按比例铺满；
+- 顶部栏新增「全屏」按钮，直接请求 `SCREEN_ORIENTATION_SENSOR_LANDSCAPE`，无需转动手机；
+- 横屏时左上角有「退出全屏」按钮，恢复 `SCREEN_ORIENTATION_UNSPECIFIED` 并显示系统栏；
+- 画面用 `ContentScale.Fit`，保证整屏可见且与归一化指针坐标一致（`Crop` 会裁掉边缘、点选会偏）。
+- 放大后画质受 `quality.maxWidth` 限制（当前 1600），需要更清晰时要先把 quality 提到 1920/2560。
