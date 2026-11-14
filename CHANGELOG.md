@@ -22,6 +22,9 @@
 
 ### 远程桌面
 
+- Android 设备页会正常显示「看这台设备屏幕」入口：之前网络请求跑在主线程上被系统拦下，入口被静默隐藏，进到观看页也起不来会话；现在入口、会话、控制权申请与截图都可用。（[108832a6](https://github.com/anywhere-labs/Agents-Anywhere/commit/108832a6)）
+- 只有观看权限、或设备关闭了剪贴板时，远程桌面入口不再跟着一起消失（入口跟随「查看」能力，控制与剪贴板是页面内的开关）。（[108832a6](https://github.com/anywhere-labs/Agents-Anywhere/commit/108832a6)）
+- 后加入的观看者不再一直黑屏：被控端会定期重新发布画面轨，新加入的一方立刻能拿到关键帧；`requestKeyframe` 也不再只返回成功却什么都不做。（[dc742dd6](https://github.com/anywhere-labs/Agents-Anywhere/commit/dc742dd6)）
 - 远程桌面启动现在有明确的时间预算：Server 给 Connector 的启动请求带 8 秒上限，超时后 Connector 会停止屏幕主机并返回 `rd_host_timeout`，不会出现「客户端已经报错、被控设备还在共享」的状态。（[a73f23a3](https://github.com/anywhere-labs/Agents-Anywhere/commit/a73f23a3)、[bf4b16e3](https://github.com/anywhere-labs/Agents-Anywhere/commit/bf4b16e3)）
 - 部署时如果 `AGENT_SERVER_SECRET` 为空、仍是默认值或短于 32 个字符，Server 启动会打印一条警告：此时任何人拿到仓库里的默认值就能伪造访问令牌，保存的密钥也无法加密。（[PENDING_SECRET](https://github.com/anywhere-labs/Agents-Anywhere/commit/49329b47)）
 - Web、Desktop 和 Android 的远程桌面页都可以保存当前画面（截图）；文件名带设备与时间，格式跟随服务端实际返回的类型（JPEG 或 PNG）。Android 保存后会打开系统分享面板。（[12898c32](https://github.com/anywhere-labs/Agents-Anywhere/commit/12898c32)、[PENDING_ANDROID](https://github.com/anywhere-labs/Agents-Anywhere/commit/98643ac7)）
