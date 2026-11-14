@@ -25,6 +25,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -100,6 +101,9 @@ sealed interface RemoteDesktopSessionState {
  * synchronous (`updateQuality`, `requestKeyframe`, `close`) or `suspend` where it calls the
  * Server (`takeControl`, `releaseControl`, `end`).
  */
+private const val VIDEO_KEYFRAME_ATTEMPTS = 5
+private const val VIDEO_KEYFRAME_DELAY_MS = 3_000L
+
 class RemoteDesktopSessionController(
     private val media: MediaSession,
     private val serverUrl: String,
@@ -112,6 +116,8 @@ class RemoteDesktopSessionController(
     /** Dispatcher for the blocking Server calls; tests inject an unconfined one. */
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
+    private var videoWatchdog: Job? = null
+
     private val _state = MutableStateFlow<RemoteDesktopSessionState>(RemoteDesktopSessionState.Idle)
     val state: StateFlow<RemoteDesktopSessionState> = _state.asStateFlow()
 
@@ -248,6 +254,23 @@ class RemoteDesktopSessionController(
     }
 
     /**
+     * A viewer that joins after the host started publishing has no keyframe, so the
+     * decoder produces nothing (`docs/remote-desktop.md` §8.3). Ask for one every few
+     * seconds until the first frame lands; the host re-publishes its track, which
+     * starts with a keyframe.
+     */
+    private fun watchForVideo() {
+        videoWatchdog?.cancel()
+        videoWatchdog = scope.launch {
+            repeat(VIDEO_KEYFRAME_ATTEMPTS) {
+                delay(VIDEO_KEYFRAME_DELAY_MS)
+                if (_trackSize.value != null) return@launch
+                requestKeyframe()
+            }
+        }
+    }
+
+    /**
      * Pauses input while the viewer is in the background or the screen is locked
      * (`docs/remote-desktop.md` section 8.3). Exactly one `release_all{reason:"pagehide"}`
      * goes out per pause: the activity can deliver several lifecycle events for one
@@ -313,6 +336,7 @@ class RemoteDesktopSessionController(
                 if (session.state.isTerminal || session.state == RemoteDesktopState.AwaitingConsent) return
                 _state.value = RemoteDesktopSessionState.Live(session, controlling)
                 syncHeartbeat()
+                watchForVideo()
             }
 
             is MediaSessionEvent.TrackAvailable -> {
@@ -369,6 +393,7 @@ class RemoteDesktopSessionController(
                     stopHeartbeatIfNotControlling()
                     _state.value = RemoteDesktopSessionState.Live(updated, controlling)
                     syncHeartbeat()
+                    watchForVideo()
                 }
             }
 
@@ -417,6 +442,7 @@ class RemoteDesktopSessionController(
         if (updated.state == RemoteDesktopState.Live || updated.state == RemoteDesktopState.Degraded) {
             _state.value = RemoteDesktopSessionState.Live(updated, controlling)
             syncHeartbeat()
+            watchForVideo()
         } else {
             // Joined, but the host is not publishing yet: stay in ConnectingMedia until it is.
             _state.value = RemoteDesktopSessionState.ConnectingMedia(updated)
