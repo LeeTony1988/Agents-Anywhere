@@ -25,7 +25,10 @@ if ($WebrtcDir) {
 $env:CC = "clang-cl"
 $env:CXX = "clang-cl"
 
-$cargoArgs = @("build", "--features", "livekit")
+# `wgc` is what actually captures the desktop on Windows: without it the host
+# publishes blank stub frames, so a packaged build must always enable it here.
+$features = if ($env:AA_SCREEN_HOST_NO_WGC -eq "1") { "livekit" } else { "livekit,wgc" }
+$cargoArgs = @("build", "--features", $features)
 if ($Release) { $cargoArgs += "--release" }
 & cargo @cargoArgs
 exit $LASTEXITCODE

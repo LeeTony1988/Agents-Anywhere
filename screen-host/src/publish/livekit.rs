@@ -27,9 +27,6 @@ use super::{MediaGrant, Publisher, Stats};
 use crate::capture::Frame;
 use crate::config::Quality;
 
-/// How often the screen track is re-published to refresh its keyframe.
-const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(20);
-
 enum Command {
     Frame(Frame),
     /// Re-publish the video track so the encoder emits a fresh keyframe.
@@ -142,14 +139,10 @@ impl Publisher for LiveKitPublisher {
                 let mut frame_count = 0u32;
                 let mut last_report = std::time::Instant::now();
                 // The Rust SDK exposes no keyframe request, and the encoder only
-                // emits one when a track starts. A viewer that joins later would
-                // stare at a frozen picture forever, so the track is re-published
-                // on demand (`requestKeyframe`) and at a slow background cadence.
-                let mut refresh_at = tokio::time::Instant::now() + REFRESH_INTERVAL;
-                while let Some(command) = tokio::select! {
-                    command = receiver.recv() => command,
-                    _ = tokio::time::sleep_until(refresh_at) => Some(Command::Refresh),
-                } {
+                // emits one when a track starts. A viewer that joins later asks the
+                // Server for a keyframe, which lands here as `Refresh`; re-publishing
+                // is the only way to satisfy it with this SDK version.
+                while let Some(command) = receiver.recv().await {
                     if matches!(command, Command::Refresh) {
                         // Unpublish + publish is the only way to force a keyframe
                         // with this SDK version: a fresh publication starts with one.
@@ -174,7 +167,6 @@ impl Publisher for LiveKitPublisher {
                                 warn!("LiveKit re-publish failed session={session}: {error}");
                             }
                         }
-                        refresh_at = tokio::time::Instant::now() + REFRESH_INTERVAL;
                         continue;
                     }
                     match command {
