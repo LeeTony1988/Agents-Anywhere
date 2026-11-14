@@ -106,10 +106,18 @@ internal fun RemoteDesktopRoute(
 
     // A control takeover by someone else arrives as a state change, not as a message.
     var wasControlling by remember { mutableStateOf(false) }
+    // The viewer opens in control mode, so take the lease as soon as the session is live:
+    // otherwise the page sits in "watching only" and taps look broken.
+    var takeControlRequested by remember { mutableStateOf(false) }
     LaunchedEffect(sessionState) {
-        val controlling = (sessionState as? RemoteDesktopSessionState.Live)?.controlling ?: false
+        val live = sessionState as? RemoteDesktopSessionState.Live
+        val controlling = live?.controlling ?: false
         if (wasControlling && !controlling) {
             notice = context.getString(R.string.remote_desktop_control_revoked)
+        }
+        if (live != null && !controlling && !takeControlRequested) {
+            takeControlRequested = true
+            runCatching { controller.takeControl() }
         }
         wasControlling = controlling
     }
