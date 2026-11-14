@@ -30,6 +30,8 @@ import com.agentsanywhere.app.api.RemoteDesktopCapabilityId
 import com.agentsanywhere.app.navigation.AppDestination
 import com.agentsanywhere.app.ui.screens.remotedesktop.RemoteDesktopScreen
 import com.agentsanywhere.app.ui.screens.remotedesktop.RemoteDesktopUiState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 /**
@@ -121,16 +123,18 @@ internal fun RemoteDesktopRoute(
         screenshotBusy = true
         scope.launch {
             runCatching {
-                val shot = remoteDesktopApi.screenshot(
-                    serverUrl,
-                    authorizationToken,
-                    activeSession.id,
-                    RemoteDesktopScreenshotRequest(
-                        format = RemoteDesktopScreenshotFormat.Jpeg,
-                        maxWidth = 1920,
-                        quality = 85,
-                    ),
-                )
+                val shot = withContext(Dispatchers.IO) {
+                    remoteDesktopApi.screenshot(
+                        serverUrl,
+                        authorizationToken,
+                        activeSession.id,
+                        RemoteDesktopScreenshotRequest(
+                            format = RemoteDesktopScreenshotFormat.Jpeg,
+                            maxWidth = 1920,
+                            quality = 85,
+                        ),
+                    )
+                }
                 saveAndShareScreenshot(context, id, shot)
             }.onFailure { error ->
                 notice = error.message ?: context.getString(R.string.remote_desktop_screenshot_failed)

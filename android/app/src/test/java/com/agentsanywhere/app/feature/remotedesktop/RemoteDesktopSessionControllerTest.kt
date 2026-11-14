@@ -55,6 +55,7 @@ class RemoteDesktopSessionControllerTest {
             clock = { clock.now },
             scheduler = scheduler,
             scope = CoroutineScope(Dispatchers.Unconfined),
+            ioDispatcher = Dispatchers.Unconfined,
         )
     }
 

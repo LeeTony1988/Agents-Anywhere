@@ -1,18 +1,22 @@
 package com.agentsanywhere.app.feature.remotedesktop
 
 import com.agentsanywhere.app.api.RemoteDesktopApi
+import com.agentsanywhere.app.api.RemoteDesktopCapabilityId
 import com.agentsanywhere.app.api.RemoteDesktopErrorCode
 import com.agentsanywhere.app.api.RemoteDesktopException
 import com.agentsanywhere.app.api.RemoteDesktopHostInfo
 import com.agentsanywhere.app.api.RemoteDesktopUnavailableReason
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 
 /**
  * Whether the device page may offer "watch this device's screen".
  *
- * The decision itself is [remoteDesktopEntryVisible]: the entry stays hidden unless every
- * advertised capability is `supported && available && allowed`. The domain layer is here so
- * several call sites (device list, device detail, remote desktop screen) agree on it.
+ * The decision itself is [remoteDesktopEntryVisible]: the entry needs the `view` capability
+ * to be `supported && available && allowed`; control and clipboard are switches inside the
+ * viewer. The domain layer is here so several call sites (device list, device detail,
+ * remote desktop screen) agree on it.
  */
 sealed interface RemoteDesktopEntryState {
     /** `GET connectors/{id}/remote-desktop` in flight. */
@@ -43,14 +47,18 @@ fun remoteDesktopEntryState(hostInfo: RemoteDesktopHostInfo?): RemoteDesktopEntr
 /**
  * Reason to show when the entry cannot be used.
  *
- * The host's own fact wins (it describes the machine), then the first capability that is
- * not usable: with two capabilities, the one that is off is the interesting one.
+ * The host's own fact wins (it describes the machine), then the `view` capability, then any
+ * other switch that is off.
  */
 fun remoteDesktopUnavailableReason(hostInfo: RemoteDesktopHostInfo?): RemoteDesktopUnavailableReason? {
     val host = hostInfo?.host
     host?.unavailableReason?.let { return it }
     host?.unavailableReasonRaw?.let { return RemoteDesktopUnavailableReason.fromWireValue(it) }
-    val blocked = hostInfo?.capabilities?.firstOrNull { !it.isUsable() } ?: return null
+    // The `view` capability explains the entry; only fall back to any other switch when
+    // the payload has no view capability at all.
+    val blocked = hostInfo?.capability(RemoteDesktopCapabilityId.View)?.takeIf { !it.isUsable() }
+        ?: hostInfo?.capabilities?.firstOrNull { !it.isUsable() }
+        ?: return null
     blocked.unavailableReason?.let { return it }
     return blocked.unavailableReasonRaw?.let(RemoteDesktopUnavailableReason::fromWireValue)
 }
@@ -69,7 +77,12 @@ suspend fun loadRemoteDesktopEntry(
         return RemoteDesktopEntryState.Unavailable(null, null)
     }
     return try {
-        remoteDesktopEntryState(api.getHostInfo(serverUrl, authorizationToken, connectorId))
+        // OkHttp is blocking; `LaunchedEffect` runs on Main, so the probe would
+        // otherwise fail with NetworkOnMainThreadException and hide the entry.
+        val info = withContext(Dispatchers.IO) {
+            api.getHostInfo(serverUrl, authorizationToken, connectorId)
+        }
+        remoteDesktopEntryState(info)
     } catch (error: CancellationException) {
         throw error
     } catch (error: RemoteDesktopException) {

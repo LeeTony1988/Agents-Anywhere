@@ -10,7 +10,7 @@ import org.junit.Test
 
 class RemoteDesktopAvailabilityTest {
     @Test
-    fun entryIsVisibleOnlyWhenEveryCapabilityIsUsable() {
+    fun entryFollowsTheViewCapability() {
         assertTrue(remoteDesktopEntryVisible(hostInfo(capability())))
         assertFalse(remoteDesktopEntryVisible(hostInfo(capability(available = false))))
         assertFalse(remoteDesktopEntryVisible(hostInfo(capability(allowed = false))))
@@ -20,20 +20,32 @@ class RemoteDesktopAvailabilityTest {
     }
 
     @Test
-    fun oneUnusableCapabilityHidesTheWholeEntry() {
+    fun aRestrictedControlOrClipboardStillOffersTheEntry() {
+        // A watch-only device, or one with the clipboard policy off, must remain
+        // watchable — otherwise the entry vanishes on the default device settings.
+        assertTrue(
+            remoteDesktopEntryVisible(
+                hostInfo(
+                    capability(id = RemoteDesktopCapabilityId.View),
+                    capability(id = RemoteDesktopCapabilityId.Control, allowed = false),
+                ),
+            ),
+        )
         assertTrue(
             remoteDesktopEntryVisible(
                 hostInfo(
                     capability(id = RemoteDesktopCapabilityId.View),
                     capability(id = RemoteDesktopCapabilityId.Control),
+                    capability(id = RemoteDesktopCapabilityId.Clipboard, allowed = false),
                 ),
             ),
         )
+        // Nothing to watch: only then is the entry hidden.
         assertFalse(
             remoteDesktopEntryVisible(
                 hostInfo(
-                    capability(id = RemoteDesktopCapabilityId.View),
-                    capability(id = RemoteDesktopCapabilityId.Control, allowed = false),
+                    capability(id = RemoteDesktopCapabilityId.View, available = false),
+                    capability(id = RemoteDesktopCapabilityId.Control),
                 ),
             ),
         )

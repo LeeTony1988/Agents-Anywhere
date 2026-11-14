@@ -13,9 +13,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The device page entry is capability driven: it appears only when every advertised remote
- * desktop capability is supported, available and allowed, and it carries the reason the
- * Server gave when it is not.
+ * The device page entry is capability driven: it appears when the `view` capability is
+ * supported, available and allowed, and it carries the reason the Server gave when it is
+ * not. Control and clipboard are switches inside the viewer.
  */
 class RemoteDesktopEntryStateTest {
 
@@ -35,18 +35,33 @@ class RemoteDesktopEntryStateTest {
     }
 
     @Test
-    fun oneUnavailableCapabilityHidesTheEntryForAll() {
+    fun anUnavailableViewCapabilityHidesTheEntryAndExplainsWhy() {
         val state = remoteDesktopEntryState(
             hostInfo(
                 capabilities = listOf(
-                    capability(),
-                    capability(id = RemoteDesktopCapabilityId.Control, available = false, reason = "device_policy_disabled"),
+                    capability(available = false, reason = "host_not_running"),
+                    capability(id = RemoteDesktopCapabilityId.Control),
                 ),
             ),
         )
 
         val unavailable = state as RemoteDesktopEntryState.Unavailable
-        assertEquals(RemoteDesktopUnavailableReason.DevicePolicyDisabled, unavailable.reason)
+        assertEquals(RemoteDesktopUnavailableReason.HostNotRunning, unavailable.reason)
+    }
+
+    @Test
+    fun aDisabledControlOrClipboardKeepsTheEntryForWatching() {
+        for (blocked in listOf(RemoteDesktopCapabilityId.Control, RemoteDesktopCapabilityId.Clipboard)) {
+            val state = remoteDesktopEntryState(
+                hostInfo(
+                    capabilities = listOf(
+                        capability(),
+                        capability(id = blocked, allowed = false, reason = "device_policy_disabled"),
+                    ),
+                ),
+            )
+            assertTrue("$blocked must not hide the entry", state is RemoteDesktopEntryState.Available)
+        }
     }
 
     @Test

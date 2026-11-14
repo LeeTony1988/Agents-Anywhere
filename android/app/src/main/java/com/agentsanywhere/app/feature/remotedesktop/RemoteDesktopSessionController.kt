@@ -17,6 +17,7 @@ import com.agentsanywhere.app.feature.remotedesktop.input.RELEASE_REASON_HANDOFF
 import com.agentsanywhere.app.feature.remotedesktop.input.RELEASE_REASON_MANUAL
 import com.agentsanywhere.app.feature.remotedesktop.input.RELEASE_REASON_PAGE_HIDE
 import com.agentsanywhere.app.feature.remotedesktop.input.RemoteInputEncoder
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Controller lease is 60 s; the client renews it every 20 s (`docs/api/remote-desktop.md`). */
 const val REMOTE_DESKTOP_HEARTBEAT_MILLIS: Long = 20_000L
@@ -107,6 +109,8 @@ class RemoteDesktopSessionController(
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val scheduler: RemoteDesktopScheduler = ThreadRemoteDesktopScheduler(),
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+    /** Dispatcher for the blocking Server calls; tests inject an unconfined one. */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val _state = MutableStateFlow<RemoteDesktopSessionState>(RemoteDesktopSessionState.Idle)
     val state: StateFlow<RemoteDesktopSessionState> = _state.asStateFlow()
@@ -176,17 +180,20 @@ class RemoteDesktopSessionController(
         _state.value = RemoteDesktopSessionState.Creating
 
         val created = try {
-            api.createSession(
-                serverUrl = serverUrl,
-                authorizationToken = authorizationToken,
-                request = RemoteDesktopSessionCreateRequest(
-                    connectorId = connectorId,
-                    mode = mode,
-                    displayId = displayId,
-                    quality = quality,
-                    client = client,
-                ),
-            )
+            // OkHttp is blocking: these controllers run on Main.immediate.
+            io {
+                api.createSession(
+                    serverUrl = serverUrl,
+                    authorizationToken = authorizationToken,
+                    request = RemoteDesktopSessionCreateRequest(
+                        connectorId = connectorId,
+                        mode = mode,
+                        displayId = displayId,
+                        quality = quality,
+                        client = client,
+                    ),
+                )
+            }
         } catch (error: Exception) {
             // RemoteDesktopException keeps its stable code; anything else becomes Unknown.
             _state.value = error.toFailedState()
@@ -204,7 +211,7 @@ class RemoteDesktopSessionController(
         val sessionId = currentSession?.id ?: return
         val participant = participantId ?: return
         val updated = try {
-            api.takeControl(serverUrl, authorizationToken, sessionId, participant)
+            io { api.takeControl(serverUrl, authorizationToken, sessionId, participant) }
         } catch (error: Exception) {
             // RemoteDesktopException keeps its stable code; anything else becomes Unknown.
             _state.value = error.toFailedState()
@@ -217,7 +224,7 @@ class RemoteDesktopSessionController(
     suspend fun releaseControl() {
         val sessionId = currentSession?.id ?: return
         val updated = try {
-            api.releaseControl(serverUrl, authorizationToken, sessionId)
+            io { api.releaseControl(serverUrl, authorizationToken, sessionId) }
         } catch (error: Exception) {
             // RemoteDesktopException keeps its stable code; anything else becomes Unknown.
             _state.value = error.toFailedState()
@@ -266,7 +273,7 @@ class RemoteDesktopSessionController(
         }
         releaseInput(RELEASE_REASON_MANUAL)
         val ended = try {
-            api.endSession(serverUrl, authorizationToken, sessionId, reason)
+            io { api.endSession(serverUrl, authorizationToken, sessionId, reason) }
         } catch (error: Exception) {
             null
         }
@@ -329,6 +336,9 @@ class RemoteDesktopSessionController(
     // ---- session follow-up -------------------------------------------------
 
     /** True while a create/join is already running, so a second `start` is ignored. */
+    /** Every Server call in this controller is blocking OkHttp; keep it off Main. */
+    private suspend fun <T> io(block: suspend () -> T): T = withContext(ioDispatcher) { block() }
+
     private fun isInFlight(): Boolean = when (_state.value) {
         RemoteDesktopSessionState.Creating,
         is RemoteDesktopSessionState.AwaitingConsent,
@@ -423,7 +433,7 @@ class RemoteDesktopSessionController(
         val participant = participantId ?: error("Created the session without a participantId")
         val role = if (preferController) RemoteDesktopTokenRole.Controller else RemoteDesktopTokenRole.Viewer
         return try {
-            api.refreshToken(serverUrl, authorizationToken, sessionId, participant, role)
+            io { api.refreshToken(serverUrl, authorizationToken, sessionId, participant, role) }
         } catch (error: RemoteDesktopException) {
             if (role == RemoteDesktopTokenRole.Controller) {
                 api.refreshToken(serverUrl, authorizationToken, sessionId, participant, RemoteDesktopTokenRole.Viewer)
