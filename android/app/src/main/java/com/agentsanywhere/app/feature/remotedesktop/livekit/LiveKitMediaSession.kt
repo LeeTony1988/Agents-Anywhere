@@ -8,7 +8,7 @@ import io.livekit.android.ConnectOptions
 import io.livekit.android.LiveKit
 import io.livekit.android.events.RoomEvent
 import io.livekit.android.events.TrackEvent
-import io.livekit.android.renderer.TextureViewRenderer
+import io.livekit.android.renderer.SurfaceViewRenderer
 import io.livekit.android.room.Room
 import io.livekit.android.room.track.DataPublishReliability
 import io.livekit.android.room.track.RemoteTrackPublication
@@ -53,7 +53,7 @@ const val REMOTE_DESKTOP_POINTER_TOPIC: String = "aa.pointer"
  *   destinationIdentities)` returning `Result<Unit>`, with `DataPublishReliability.RELIABLE`
  *   and `LOSSY`.
  * - There is **no** `io.livekit.android.renderer.VideoRenderer` in 2.30.0: the renderers are
- *   `TextureViewRenderer` and `SurfaceViewRenderer`, both are `VideoSink`s, and
+ *   `SurfaceViewRenderer` and `SurfaceViewRenderer`, both are `VideoSink`s, and
  *   `VideoTrack.addRenderer(VideoSink)` is how a view is bound. This class therefore
  *   exposes `attach`/`detach` on [RemoteDesktopVideoSurface] instead of a `VideoRenderer`
  *   parameter.
@@ -84,7 +84,7 @@ class LiveKitMediaSession(
     private var roomEventsJob: Job? = null
     private var trackEventsJob: Job? = null
     private var videoTrack: VideoTrack? = null
-    private var renderer: TextureViewRenderer? = null
+    private var renderer: SurfaceViewRenderer? = null
     private var eglBase: EglBase? = null
     private var joinedIdentity: String? = null
 
@@ -155,11 +155,7 @@ class LiveKitMediaSession(
         )
     }
 
-    override fun attach(renderer: TextureViewRenderer) {
-        // `AndroidView.update` calls this on every recomposition: a renderer that is already
-        // initialised and bound must not be added to the track twice.
-        if (this.renderer === renderer) return
-        if (this.renderer != null) detach(this.renderer!!)
+    override fun initRenderer(renderer: SurfaceViewRenderer) {
         val egl = eglBase ?: runCatching { eglFactory() }.getOrNull()?.also { eglBase = it }
         egl?.let { context ->
             runCatching {
@@ -167,11 +163,18 @@ class LiveKitMediaSession(
                 renderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
             }
         }
+    }
+
+    override fun attach(renderer: SurfaceViewRenderer) {
+        // `AndroidView.update` calls this on every recomposition: a renderer that is already
+        // bound must not be added to the track twice.
+        if (this.renderer === renderer) return
+        if (this.renderer != null) detach(this.renderer!!)
         this.renderer = renderer
         videoTrack?.let { track -> runCatching { track.addRenderer(renderer) } }
     }
 
-    override fun detach(renderer: TextureViewRenderer) {
+    override fun detach(renderer: SurfaceViewRenderer) {
         videoTrack?.let { track -> runCatching { track.removeRenderer(renderer) } }
         runCatching { renderer.release() }
         if (this.renderer === renderer) this.renderer = null

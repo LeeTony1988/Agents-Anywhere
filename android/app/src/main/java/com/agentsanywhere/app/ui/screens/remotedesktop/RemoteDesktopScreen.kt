@@ -79,7 +79,7 @@ import com.agentsanywhere.app.feature.remotedesktop.livekit.RemoteDesktopVideoSu
 import com.agentsanywhere.app.ui.designsystem.AAToastHost
 import com.agentsanywhere.app.ui.designsystem.AAToastVisuals
 import com.agentsanywhere.app.ui.designsystem.LocalAAColors
-import io.livekit.android.renderer.TextureViewRenderer
+import io.livekit.android.renderer.SurfaceViewRenderer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
@@ -441,7 +441,11 @@ private fun RemoteDesktopVideoCanvas(
                         },
                 ) {
                     AndroidView(
-                        factory = { context -> TextureViewRenderer(context) },
+                        factory = { context ->
+                            SurfaceViewRenderer(context).also { view ->
+                                videoSurface.initRenderer(view)
+                            }
+                        },
                         modifier = Modifier.fillMaxSize(),
                         update = { view -> videoSurface.attach(view) },
                         onRelease = { view -> videoSurface.detach(view) },
