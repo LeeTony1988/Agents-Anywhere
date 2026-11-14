@@ -455,6 +455,39 @@ impl Host {
         response_ok(id, serde_json::json!({"appliedSeq": applied_seq}))
     }
 
+    /// Applies input that arrived over the media data channel (`aa.input`).
+    ///
+    /// The primary input plane is the LiveKit data channel: low latency and no Server
+    /// round-trip. Only the granted controller may use it, which is checked against the
+    /// sender's participant identity.
+    pub fn apply_channel_input(&mut self) {
+        let packets = match self.publisher.lock() {
+            Ok(mut publisher) => publisher.take_data(),
+            Err(_) => return,
+        };
+        for packet in packets {
+            if packet.topic != "aa.input" {
+                continue;
+            }
+            if let Some(expected) = self.controller_identity.as_deref() {
+                if !expected.is_empty() && packet.from != expected {
+                    continue;
+                }
+            }
+            let Ok(value) = serde_json::from_slice::<serde_json::Value>(&packet.payload) else {
+                continue;
+            };
+            if !self.allow_input_at(std::time::Instant::now()) {
+                continue;
+            }
+            let Ok(event) = InputEvent::from_json(&value) else {
+                continue;
+            };
+            self.track_pressed(&event);
+            let _ = self.sink.apply(&event);
+        }
+    }
+
     /// Sliding one-second budget for applied input events (decisions §2.4).
     ///
     /// Pointer motion normally travels on the lossy `aa.pointer` channel, so a

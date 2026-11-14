@@ -45,6 +45,14 @@ impl Default for Stats {
 }
 
 /// Media backend used by the host.
+/// One data-channel packet a viewer sent to the host (input plane).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceivedData {
+    pub topic: String,
+    pub payload: Vec<u8>,
+    pub from: String,
+}
+
 pub trait Publisher: Send {
     fn start(
         &mut self,
@@ -58,6 +66,12 @@ pub trait Publisher: Send {
     fn stop(&mut self);
     /// Best-effort keyframe request (decisions §1.1.4); returns whether it was sent.
     fn request_keyframe(&mut self) -> bool;
+
+    /// Drains input packets received over the media data channel. The default is empty:
+    /// publishers without a data plane simply never deliver input that way.
+    fn take_data(&mut self) -> Vec<ReceivedData> {
+        Vec::new()
+    }
     fn stats(&self) -> Stats;
 }
 

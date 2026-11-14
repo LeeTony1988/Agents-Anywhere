@@ -23,7 +23,7 @@ use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::VideoResolution;
 
-use super::{MediaGrant, Publisher, Stats};
+use super::{MediaGrant, Publisher, ReceivedData, Stats};
 use crate::capture::Frame;
 use crate::config::Quality;
 
@@ -35,6 +35,7 @@ enum Command {
 }
 
 pub struct LiveKitPublisher {
+    data_queue: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<ReceivedData>>>,
     sender: Option<tokio::sync::mpsc::Sender<Command>>,
     worker: Option<JoinHandle<()>>,
     stats: Arc<Mutex<Stats>>,
@@ -44,6 +45,9 @@ pub struct LiveKitPublisher {
 impl LiveKitPublisher {
     pub fn new() -> Self {
         Self {
+            data_queue: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::VecDeque::new(),
+            )),
             sender: None,
             worker: None,
             stats: Arc::new(Mutex::new(Stats::default())),
@@ -77,6 +81,7 @@ impl Publisher for LiveKitPublisher {
         height: u32,
     ) {
         self.stop_worker();
+        let data_queue = std::sync::Arc::clone(&self.data_queue);
         let (sender, mut receiver) = tokio::sync::mpsc::channel::<Command>(2);
         let stats = Arc::clone(&self.stats);
         let grant = media.clone();
@@ -103,7 +108,30 @@ impl Publisher for LiveKitPublisher {
                             return;
                         }
                     };
-                tokio::spawn(async move { while events.recv().await.is_some() {} });
+                let queue = std::sync::Arc::clone(&data_queue);
+                tokio::spawn(async move {
+                    while let Some(event) = events.recv().await {
+                        if let RoomEvent::DataReceived {
+                            payload,
+                            topic,
+                            participant,
+                            ..
+                        } = event
+                        {
+                            let from = participant
+                                .as_ref()
+                                .map(|p| p.identity().to_string())
+                                .unwrap_or_default();
+                            if let Ok(mut queue) = queue.lock() {
+                                queue.push_back(ReceivedData {
+                                    topic: topic.unwrap_or_default(),
+                                    payload: payload.as_ref().clone(),
+                                    from,
+                                });
+                            }
+                        }
+                    }
+                });
                 let resolution = VideoResolution {
                     width: width.max(2),
                     height: height.max(2),
@@ -226,6 +254,16 @@ impl Publisher for LiveKitPublisher {
     fn stop(&mut self) {
         self.started = false;
         self.stop_worker();
+    }
+
+    fn take_data(&mut self) -> Vec<ReceivedData> {
+        let mut drained = Vec::new();
+        if let Ok(mut queue) = self.data_queue.lock() {
+            while let Some(item) = queue.pop_front() {
+                drained.push(item);
+            }
+        }
+        drained
     }
 
     fn request_keyframe(&mut self) -> bool {

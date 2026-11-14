@@ -187,6 +187,8 @@ impl App {
                         log::info!("local sharing overlay requested stop");
                         break;
                     }
+                    // Idle window: apply any input that arrived on the data channel.
+                    self.host.apply_channel_input();
                     continue;
                 }
                 Err(RecvTimeoutError::Disconnected) => break,
@@ -194,6 +196,7 @@ impl App {
             if let Some(code) = self.handle_line(&line, &mut out, &mut answered_any) {
                 return code;
             }
+            self.host.apply_channel_input();
             if self.once && answered_any {
                 break;
             }
