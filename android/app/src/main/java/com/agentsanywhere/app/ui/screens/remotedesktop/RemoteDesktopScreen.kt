@@ -1,6 +1,7 @@
 package com.agentsanywhere.app.ui.screens.remotedesktop
 
 import android.os.SystemClock
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -21,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -35,6 +37,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -44,6 +47,7 @@ import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -79,7 +83,7 @@ import com.agentsanywhere.app.feature.remotedesktop.livekit.RemoteDesktopVideoSu
 import com.agentsanywhere.app.ui.designsystem.AAToastHost
 import com.agentsanywhere.app.ui.designsystem.AAToastVisuals
 import com.agentsanywhere.app.ui.designsystem.LocalAAColors
-import io.livekit.android.renderer.SurfaceViewRenderer
+import io.livekit.android.renderer.TextureViewRenderer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
@@ -440,16 +444,28 @@ private fun RemoteDesktopVideoCanvas(
                             transformOrigin = TransformOrigin(0f, 0f)
                         },
                 ) {
-                    AndroidView(
-                        factory = { context ->
-                            SurfaceViewRenderer(context).also { view ->
-                                videoSurface.initRenderer(view)
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                        update = { view -> videoSurface.attach(view) },
-                        onRelease = { view -> videoSurface.detach(view) },
-                    )
+                    // Fallback first: when the media layer can produce bitmaps the viewer draws
+                    // them directly, which works even where the WebRTC GL sink paints nothing.
+                    val compatBitmap = videoSurface.compatFrame?.collectAsState()?.value
+                    if (compatBitmap != null) {
+                        Image(
+                            bitmap = compatBitmap.asImageBitmap(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        AndroidView(
+                            factory = { context ->
+                                TextureViewRenderer(context).also { view ->
+                                    videoSurface.initRenderer(view)
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                            update = { view -> videoSurface.attach(view) },
+                            onRelease = { view -> videoSurface.detach(view) },
+                        )
+                    }
                 }
             }
         } else {

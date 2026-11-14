@@ -8,7 +8,7 @@ import io.livekit.android.ConnectOptions
 import io.livekit.android.LiveKit
 import io.livekit.android.events.RoomEvent
 import io.livekit.android.events.TrackEvent
-import io.livekit.android.renderer.SurfaceViewRenderer
+import io.livekit.android.renderer.TextureViewRenderer
 import io.livekit.android.room.Room
 import io.livekit.android.room.track.DataPublishReliability
 import io.livekit.android.room.track.RemoteTrackPublication
@@ -23,7 +23,10 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import android.graphics.Bitmap
 import livekit.org.webrtc.EglBase
 import livekit.org.webrtc.PeerConnection
 import livekit.org.webrtc.RendererCommon
@@ -53,7 +56,7 @@ const val REMOTE_DESKTOP_POINTER_TOPIC: String = "aa.pointer"
  *   destinationIdentities)` returning `Result<Unit>`, with `DataPublishReliability.RELIABLE`
  *   and `LOSSY`.
  * - There is **no** `io.livekit.android.renderer.VideoRenderer` in 2.30.0: the renderers are
- *   `SurfaceViewRenderer` and `SurfaceViewRenderer`, both are `VideoSink`s, and
+ *   `TextureViewRenderer` and `TextureViewRenderer`, both are `VideoSink`s, and
  *   `VideoTrack.addRenderer(VideoSink)` is how a view is bound. This class therefore
  *   exposes `attach`/`detach` on [RemoteDesktopVideoSurface] instead of a `VideoRenderer`
  *   parameter.
@@ -62,6 +65,8 @@ const val REMOTE_DESKTOP_POINTER_TOPIC: String = "aa.pointer"
  * (the merged manifest removes `RECORD_AUDIO` and `MODIFY_AUDIO_SETTINGS`), and `video =
  * false` makes sure no local track is ever published.
  */
+private const val GL_FALLBACK_DELAY_MS = 3_000L
+
 class LiveKitMediaSession(
     context: Context,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
@@ -84,7 +89,13 @@ class LiveKitMediaSession(
     private var roomEventsJob: Job? = null
     private var trackEventsJob: Job? = null
     private var videoTrack: VideoTrack? = null
-    private var renderer: SurfaceViewRenderer? = null
+    private var sinkFrames = 0L
+    private val compatFrames = MutableStateFlow<Bitmap?>(null)
+    private var lastCompatAt = 0L
+    @Volatile private var glFirstFrame = false
+    private val compatEnabled = java.util.concurrent.atomic.AtomicBoolean(false)
+    override val compatFrame: StateFlow<Bitmap?> = compatFrames
+    private var renderer: TextureViewRenderer? = null
     private var eglBase: EglBase? = null
     private var joinedIdentity: String? = null
 
@@ -155,26 +166,123 @@ class LiveKitMediaSession(
         )
     }
 
-    override fun initRenderer(renderer: SurfaceViewRenderer) {
-        val egl = eglBase ?: runCatching { eglFactory() }.getOrNull()?.also { eglBase = it }
-        egl?.let { context ->
-            runCatching {
-                renderer.init(context.eglBaseContext, null)
-                renderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+    override fun initRenderer(renderer: TextureViewRenderer) {
+        val egl = eglBase ?: runCatching { eglFactory() }
+            .onFailure { error -> android.util.Log.w("RDVideo", "EglBase.create failed", error) }
+            .getOrNull()
+            ?.also { eglBase = it }
+        if (egl == null) {
+            android.util.Log.w("RDVideo", "no EGL context; the renderer stays black")
+            return
+        }
+        runCatching {
+            renderer.init(
+                egl.eglBaseContext,
+                object : RendererCommon.RendererEvents {
+                    override fun onFirstFrameRendered() {
+                        glFirstFrame = true
+                        android.util.Log.i("RDVideo", "GL sink drew its first frame")
+                    }
+
+                    override fun onFrameResolutionChanged(
+                        videoWidth: Int,
+                        videoHeight: Int,
+                        rotation: Int,
+                    ) = Unit
+                },
+            )
+            renderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+        }.onSuccess {
+            android.util.Log.i("RDVideo", "renderer initialised id=${System.identityHashCode(renderer)}")
+            if (isEmulator()) {
+                // Emulators advertise a GL sink that reports frames yet paints nothing, so
+                // the bitmap path is the default there.
+                compatEnabled.set(true)
+                android.util.Log.i("RDVideo", "emulator: using the bitmap fallback")
+            }
+            scope.launch {
+                kotlinx.coroutines.delay(GL_FALLBACK_DELAY_MS)
+                if (!glFirstFrame && sinkFrames > 0) {
+                    compatEnabled.set(true)
+                    android.util.Log.w(
+                        "RDVideo",
+                        "GL sink drew nothing after ${GL_FALLBACK_DELAY_MS}ms; using the bitmap fallback",
+                    )
+                }
+            }
+        }.onFailure { error ->
+            android.util.Log.w("RDVideo", "renderer.init failed", error)
+        }
+    }
+
+    /**
+     * Diagnostic tap: counts the frames the SDK actually hands to a sink, so a black
+     * picture can be attributed to the renderer instead of the subscription.
+     */
+    private fun loggingSink(): livekit.org.webrtc.VideoSink {
+        return livekit.org.webrtc.VideoSink { frame ->
+            sinkFrames += 1
+            if (sinkFrames == 1L || sinkFrames % 60L == 0L) {
+                // Mean luma of the decoded frame: this separates "the decoder gets black
+                // pixels" from "the renderer does not draw".
+                val luma = runCatching {
+                    val i420 = frame.buffer.toI420()!!
+                    val y = i420.dataY
+                    var sum = 0L
+                    var count = 0
+                    var index = 0
+                    for (row in 0 until i420.height) {
+                        for (col in 0 until i420.width) {
+                            sum += (y[index + col].toInt() and 0xFF)
+                            count += 1
+                        }
+                        index += i420.strideY
+                    }
+                    i420.release()
+                    if (count == 0) -1.0 else sum.toDouble() / count
+                }.getOrNull()
+                android.util.Log.i(
+                    "RDVideo",
+                    "sink frame #$sinkFrames ${frame.rotatedWidth}x${frame.rotatedHeight} " +
+                        "meanLuma=$luma",
+                )
             }
         }
     }
 
-    override fun attach(renderer: SurfaceViewRenderer) {
+    override fun attach(renderer: TextureViewRenderer) {
         // `AndroidView.update` calls this on every recomposition: a renderer that is already
         // bound must not be added to the track twice.
         if (this.renderer === renderer) return
         if (this.renderer != null) detach(this.renderer!!)
         this.renderer = renderer
-        videoTrack?.let { track -> runCatching { track.addRenderer(renderer) } }
+        android.util.Log.i(
+            "RDVideo",
+            "attach id=${System.identityHashCode(renderer)} track=${videoTrack != null}",
+        )
+        videoTrack?.let { track ->
+            // Forward frames to the view from one sink: this both feeds the renderer and
+            // proves (via `RDVideo` logs) that the frame reached the drawing path.
+            val tee = livekit.org.webrtc.VideoSink { frame ->
+                sinkFrames += 1
+                renderer.onFrame(frame)
+                // Compatibility path: turn decoded frames into bitmaps so the viewer can draw
+                // them without the WebRTC GL sink (which paints nothing on this emulator).
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (compatEnabled.get() && now - lastCompatAt >= 250L) {
+                    lastCompatAt = now
+                    runCatching { frame.toBitmap(step = 2) }.getOrNull()?.let { bitmap ->
+                        compatFrames.value = bitmap
+                    }
+                }
+            }
+            runCatching { track.addRenderer(tee) }
+                .onFailure { android.util.Log.w("RDVideo", "addRenderer failed", it) }
+                .onSuccess { android.util.Log.i("RDVideo", "tee bound to track") }
+        }
     }
 
-    override fun detach(renderer: SurfaceViewRenderer) {
+    override fun detach(renderer: TextureViewRenderer) {
         videoTrack?.let { track -> runCatching { track.removeRenderer(renderer) } }
         runCatching { renderer.release() }
         if (this.renderer === renderer) this.renderer = null
@@ -235,7 +343,10 @@ class LiveKitMediaSession(
         if (videoTrack === track) return
         clearVideoTrack()
         videoTrack = track
-        renderer?.let { view -> runCatching { track.addRenderer(view) } }
+        renderer?.let { view ->
+            runCatching { track.addRenderer(loggingSink()) }
+            runCatching { track.addRenderer(view) }
+        }
         trackEventsJob?.cancel()
         trackEventsJob = scope.launch {
             track.events.events.collect { event ->
@@ -321,5 +432,54 @@ class LiveKitMediaSession(
     private companion object {
         const val MEDIA_RECONNECTING_REASON = "media_reconnecting"
         const val MEDIA_SUBSCRIPTION_FAILED_REASON = "track_subscription_failed"
+    }
+
+
+    /** Cheap emulator check: real phones never match these fingerprints. */
+    private fun isEmulator(): Boolean {
+        val fingerprint = android.os.Build.FINGERPRINT
+        val model = android.os.Build.MODEL
+        val product = android.os.Build.PRODUCT
+        val hardware = android.os.Build.HARDWARE
+        return fingerprint.startsWith("generic") ||
+            fingerprint.contains("emulator") ||
+            model.contains("google_sdk") ||
+            model.contains("Emulator") ||
+            product.contains("sdk") ||
+            hardware.contains("goldfish") ||
+            hardware.contains("ranchu")
+    }
+
+    /** I420 -> ARGB by [step] pixels; good enough for a fallback preview. */
+    private fun livekit.org.webrtc.VideoFrame.toBitmap(step: Int): Bitmap? {
+        val i420 = buffer.toI420() ?: return null
+        val width = i420.width / step
+        val height = i420.height / step
+        if (width <= 0 || height <= 0) {
+            i420.release()
+            return null
+        }
+        val pixels = IntArray(width * height)
+        val y = i420.dataY
+        val u = i420.dataU
+        val v = i420.dataV
+        for (row in 0 until height) {
+            val sourceRow = row * step
+            for (col in 0 until width) {
+                val sourceCol = col * step
+                val luma = (y[sourceRow * i420.strideY + sourceCol].toInt() and 0xFF) - 16
+                val chromaIndex =
+                    (sourceRow / 2) * i420.strideU + (sourceCol / 2)
+                val cb = (u[chromaIndex].toInt() and 0xFF) - 128
+                val cr = (v[chromaIndex].toInt() and 0xFF) - 128
+                val c = (luma.coerceAtLeast(0) * 1.164).toInt()
+                val r = (c + 1.596 * cr).toInt().coerceIn(0, 255)
+                val g = (c - 0.392 * cb - 0.813 * cr).toInt().coerceIn(0, 255)
+                val b = (c + 2.017 * cb).toInt().coerceIn(0, 255)
+                pixels[row * width + col] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+            }
+        }
+        i420.release()
+        return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
     }
 }
