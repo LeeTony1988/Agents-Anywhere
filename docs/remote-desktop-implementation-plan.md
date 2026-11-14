@@ -401,5 +401,5 @@ Windows 用 Authenticode 签 `aa-screen-host.exe` 与桌面安装包，macOS 用
 | ~~打包出的 host 只发黑帧~~ | `build-livekit.ps1` 只开 `livekit`，没开 `wgc`，`capture/windows.rs` 因此发「blank stub frame」 | **已修**：构建脚本默认 `livekit,wgc`（`AA_SCREEN_HOST_NO_WGC=1` 可关） |
 | ~~截图与流各开一路采集~~ | Windows 每个输出只允许一个 WGC/DXGI duplication，第二路失败（`DXGI duplication: E_INVALIDARG`），流线程直接退出 → 客户端永远拿不到帧 | **已修**：有 media 时不再打开截图采集；流线程缓存最新帧，截图复用它 |
 | ~~静止桌面时流线程退出~~ | DXGI 只在画面变化时出帧，`AcquireNextFrame` 超时被当成致命错误 | **已修**：超时视为空闲，每秒重发一次最新帧，后加入的观看者也能拿到画面 |
-| ~~Android 黑屏~~ | 根因同上（发布的就是黑帧），不是 TextureView | **已修**：Web 端已用 canvas 取样验证真实像素（avg 224/255） |
+| Android 黑屏 | 发布端修复后 Web 已出画（canvas 取样 avg 224–235），Android 仍在解码正常的情况下画黑 | 待办：按 [已验证出画路径 §5](remote-desktop-verified-path.md) 逐步迁移（已改 factory 初始化 + SurfaceView，待真机/模拟器目视确认） |
 | 结束会话后设备页入口不再出现，需要退出重进 | 设备页只在 `device.id`/`online` 变化时重新探测能力 | 会话结束后触发一次重新探测 |
