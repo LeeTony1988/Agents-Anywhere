@@ -555,6 +555,14 @@ def main() -> int:
         help="drive headless Chrome through the built web client instead of just holding",
     )
     parser.add_argument(
+        "--serve-only",
+        action="store_true",
+        help=(
+            "start the Server and an online Connector, then stay up so a client "
+            "(emulator, phone, browser) can create sessions; no automated session"
+        ),
+    )
+    parser.add_argument(
         "--fresh",
         action="store_true",
         help="drop and recreate the e2e database before the run",
@@ -692,6 +700,17 @@ def main() -> int:
             log(f"FAIL: device-settings patch -> {status} {settings}")
             return 1
         log("device settings enabled")
+
+        if args.serve_only:
+            log("serve-only: server + connector stay up; create sessions from a client")
+            log("serve-only: login e2e@example.test / e2e-password-123456")
+            log(f"serve-only: connector {connector_id}")
+            try:
+                while True:
+                    time.sleep(5)
+            except KeyboardInterrupt:
+                log("serve-only: stopping")
+            return 0
 
         deadline = time.time() + 60
         host_info: dict = {}
