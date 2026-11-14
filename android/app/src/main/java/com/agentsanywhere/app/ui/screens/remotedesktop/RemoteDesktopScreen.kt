@@ -30,6 +30,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Minimize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -152,6 +154,13 @@ fun RemoteDesktopScreen(
     onBackgroundExpired: () -> Unit = {},
 ) {
     val colors = LocalAAColors.current
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // Landscape is the "enlarge" mode: the top bar is dropped and the system bars hide, so
+    // a 16:9 remote screen uses the whole phone display.
+    val landscape =
+        configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    RemoteDesktopImmersiveBars(hidden = landscape)
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -215,19 +224,22 @@ fun RemoteDesktopScreen(
             .background(colors.canvas),
     ) {
         Column(Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.statusBars),
-            ) {
-                RemoteDesktopTopBar(
-                    deviceName = state.deviceName,
-                    status = status,
-                    quality = state.quality,
-                    onBack = onBack,
-                    onQualityChange = onQualityChange,
-                    onEnd = onEnd,
-                )
+            if (!landscape) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.statusBars),
+                ) {
+                    RemoteDesktopTopBar(
+                        deviceName = state.deviceName,
+                        status = status,
+                        quality = state.quality,
+                        onBack = onBack,
+                        onQualityChange = onQualityChange,
+                        onEnd = onEnd,
+                        onToggleFullscreen = { context.requestViewerOrientation(landscape = true) },
+                    )
+                }
             }
             Box(
                 modifier = Modifier
@@ -242,6 +254,19 @@ fun RemoteDesktopScreen(
                     interactive = foreground && !state.isTerminal,
                     onShowKeyboard = ::showKeyboard,
                 )
+                if (landscape) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(10.dp),
+                    ) {
+                        RemoteDesktopRoundButton(
+                            icon = Lucide.Minimize,
+                            description = stringResource(R.string.remote_desktop_exit_fullscreen),
+                            onClick = { context.requestViewerOrientation(landscape = false) },
+                        )
+                    }
+                }
                 if (foreground && !state.isTerminal && state.session is RemoteDesktopSessionState.Live) {
                     Column(
                         modifier = Modifier
@@ -451,7 +476,7 @@ private fun RemoteDesktopVideoCanvas(
                         Image(
                             bitmap = compatBitmap.asImageBitmap(),
                             contentDescription = null,
-                            contentScale = ContentScale.Crop,
+                            contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {

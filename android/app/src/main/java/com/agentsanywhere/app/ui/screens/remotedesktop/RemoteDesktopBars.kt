@@ -54,6 +54,7 @@ import com.composables.icons.lucide.Camera
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronLeft
 import com.composables.icons.lucide.Keyboard
+import com.composables.icons.lucide.Maximize
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.X
 
@@ -75,6 +76,7 @@ internal fun RemoteDesktopTopBar(
     onBack: () -> Unit,
     onQualityChange: (RemoteDesktopQualityPreset) -> Unit,
     onEnd: () -> Unit,
+    onToggleFullscreen: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAAColors.current
@@ -154,6 +156,11 @@ internal fun RemoteDesktopTopBar(
                 }
             }
         }
+        RemoteDesktopRoundButton(
+            icon = Lucide.Maximize,
+            description = stringResource(R.string.remote_desktop_fullscreen),
+            onClick = onToggleFullscreen,
+        )
         RemoteDesktopRoundButton(
             icon = Lucide.X,
             description = stringResource(R.string.remote_desktop_end),

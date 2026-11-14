@@ -855,4 +855,6 @@
     <string name="remote_desktop_screenshot">Screenshot</string>
     <string name="remote_desktop_screenshot_share">Share screenshot</string>
     <string name="remote_desktop_screenshot_failed">Could not capture the screen</string>
+    <string name="remote_desktop_fullscreen">Fullscreen</string>
+    <string name="remote_desktop_exit_fullscreen">Exit fullscreen</string>
 </resources>

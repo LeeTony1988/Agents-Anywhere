@@ -853,4 +853,6 @@
     <string name="remote_desktop_screenshot">截图</string>
     <string name="remote_desktop_screenshot_share">分享截图</string>
     <string name="remote_desktop_screenshot_failed">截图失败</string>
+    <string name="remote_desktop_fullscreen">全屏</string>
+    <string name="remote_desktop_exit_fullscreen">退出全屏</string>
 </resources>
