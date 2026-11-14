@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | P0 契约 1.0 | ✅ 冻结 | `validate.py` → 28 schema / 62 valid / 25 invalid；CI `contracts` job | — |
 | P1 Server 控制面 | ✅ 实现 + 真实联调 | **153** 个 RD/指标/设置/架构/密钥用例；`e2e_full_chain.py` 用真实 Connector 跑通配对→创建→consent→WS→控制权转移→结束 | 多 worker + Redis 的真实部署未验证 |
-| P2 Connector / Screen Host | 🟡 主体完成 | **36 lib + 16** Rust 测试 + clippy；host↔LiveKit 与整链发布均实测（合成采集下浏览器解出 640×360 画面）；截图支持 JPEG/PNG；打包脚本 + sha256 校验；`acceptance.py` 真机检查清单 | **真实 WGC 采集**需要交互式桌面；签名/公证需要证书 |
+| P2 Connector / Screen Host | 🟡 主体完成 | **36 lib + 16** Rust 测试 + clippy；host↔LiveKit 与整链发布均实测；**真实 WGC 采集在本机验证通过**（host 截图返回 2560×1080 的真实桌面，Web 客户端可看可控）；截图支持 JPEG/PNG；打包脚本 + sha256 校验；`acceptance.py` 真机检查清单 | **真实 WGC 采集**需要交互式桌面；签名/公证需要证书 |
 | P3 Web / Desktop | ✅ 实现 + 脚本化浏览器验证 | Web **507**、Desktop renderer **593**、Electron main 172、typecheck、静态构建；`e2e_full_chain.py --browser` 用无头 Chrome（CDP，无需 Playwright）验证：远程桌面页渲染、申请控制→控制中+修饰键条、`<video>` 640×360/`readyState=4`、释放控制回退、点「截图」下载真实 JPEG（38 KB）；Desktop 悬浮窗/菜单栏项；两端修掉过「远程桌面路由回退首页」的缺陷 | Desktop 客户端本身的真机 e2e 未跑；浏览器画面来自合成采集 |
 | P4 Android | 🟡 除真机 | **389** 单测、`:app:lintDebug` 0 error、`assembleDebug`、三个 gate；**36 个 instrumented 用例在 API 37 模拟器上跑通**（`RemoteDesktopScreenTest` 6/6）；模拟器上实测设备页入口、会话创建、控制权申请/释放、截图按钮，并修掉「网络请求阻塞主线程导致入口消失」与「入口要求全部能力可用」两个缺陷；LiveKit 渲染、手势/键盘、控制权、截图（FileProvider 分享）已接 | **真机观看/手势/中文输入/分享面板**验收需要设备 |
 | P5 iOS | ⛔ 未开始 | — | 需要 macOS + Xcode，当前环境无法编译 |
@@ -393,3 +393,12 @@ AGENT_SERVER_LIVEKIT_API_SECRET=... docker compose -f docker/docker-compose.post
 Windows 用 Authenticode 签 `aa-screen-host.exe` 与桌面安装包，macOS 用 codesign + notarize。然后把
 `screen-host/scripts/package.ps1` 的 `dist/<platform>-<arch>/` 交给
 `desktop-workbench/scripts/prepare-screen-host.mjs` 打进 `resources/screen-host/`，在干净 VM 上安装验证。
+
+### 11.6 已发现、尚未修复的实现缺陷
+
+| 现象 | 原因 | 下一步 |
+| --- | --- | --- |
+| 打包出的 host 只发黑帧 | `build-livekit.ps1` 原来只开 `livekit`，没有 `wgc`；`capture/windows.rs` 在缺 feature 时发「blank stub frame」 | 已在构建脚本里默认加 `wgc`（可用 `AA_SCREEN_HOST_NO_WGC=1` 关掉） |
+| 同一 Connector 第二次 `host.start` 报 `capture failed: DXGI duplication` | 停止采集时没有释放 DXGI duplication，下一次 start 复用了旧会话 | 在 `WgcCapture::stop` 里显式 drop duplication，并加一条「start→stop→start」的集成测试 |
+| Android 端收到并解码了画面，但 TextureView 画出来是黑的 | 待定：EGL 初始化时机或 TextureView 渲染路径 | 切换 `SurfaceViewRenderer` 或把 `renderer.init` 移到 view 挂载后；用 Web 端同房间对照 |
+| 结束会话后设备页入口不再出现，需要退出重进 | 设备页只在 `device.id`/`online` 变化时重新探测能力 | 会话结束后触发一次重新探测 |
