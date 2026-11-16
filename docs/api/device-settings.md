@@ -13,7 +13,7 @@
 | `remoteDesktopAllowUnattended` | boolean | `false` | 无人值守（设备前没人点确认）时是否允许控制。开启时必须在本机确认。 |
 | `remoteDesktopClipboard` | boolean | `false` | 是否允许剪贴板同步（仅控制者，`text/plain`，≤64 KiB）。 |
 | `remoteDesktopMaxFps` | integer | `30` | 远程桌面帧率上限，范围 5–60。 |
-| `remoteDesktopMaxBitrateKbps` | integer | `4000` | 远程桌面码率上限，范围 500–20000。 |
+| `remoteDesktopMaxBitrateKbps` | integer | `0` | 远程桌面码率上限。`0` 表示自动：Host 按实际分辨率和帧率计算编码器预算；正数（500–100000）是显式上限。 |
 
 `confirmQuitOnShutdown` 只对 `connectorKind` 为 `desktop` 的设备有意义；远程桌面设置只对支持远程桌面的设备有意义。客户端只在对应设备上显示这些开关；Server 不按设备类型拒绝写入，其他设备保存后不产生效果。
 
@@ -36,7 +36,7 @@ GET /api/v2/connectors/{connectorId}/device-settings
     "remoteDesktopAllowUnattended": false,
     "remoteDesktopClipboard": false,
     "remoteDesktopMaxFps": 30,
-    "remoteDesktopMaxBitrateKbps": 4000
+    "remoteDesktopMaxBitrateKbps": 0
   },
   "delivered": null,
   "serverTime": "2026-11-13T00:00:00Z"

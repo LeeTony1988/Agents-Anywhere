@@ -12,7 +12,7 @@
 | D2 | 平台范围 | **Windows-first**。P2 交付 Windows 采集/输入；macOS 在 P2 后半或 P3；Linux/Wayland 在 P6。 |
 | D3 | consent 与 token | `mode=control` 且 `requireConsent=true` 且 `allowUnattended=false` → 创建后 `state=awaiting_consent`、客户端 `media=null`，**不下发任何客户端媒体 token**。Server 仍为 host 单独签发 publish token（`host:{connectorId}`，8 h）并随 `remoteDesktop.start` 交给 Connector；host 在本机确认前不 join/publish。设备确认后客户端调 `POST /sessions/{id}/token {role:"controller"}` 取短 TTL controller token。`take-control` 在未确认时返回 `202 {session}`。 |
 | D4 | 身份模型 | Server 生成不可猜测的 `participantId`（`pt_` + 32 位随机），绑定 session + user + client。LiveKit identity = `viewer:{participantId}`；host identity = `host:{connectorId}`；`session.controller` 存完整 identity（`viewer:pt_...`）。host 用 LiveKit `DataReceived.participant.identity` 校验，不接受客户端自报 identity。 |
-| D5 | 安全默认值 | `remoteDesktopEnabled=false`、`remoteDesktopAllowControl=false`、`remoteDesktopRequireConsent=true`、`remoteDesktopAllowUnattended=false`、`remoteDesktopClipboard=false`、`remoteDesktopMaxFps=30`、`remoteDesktopMaxBitrateKbps=4000`。开启 Enabled / AllowControl / AllowUnattended 必须在本机确认。 |
+| D5 | 安全默认值 | `remoteDesktopEnabled=false`、`remoteDesktopAllowControl=false`、`remoteDesktopRequireConsent=true`、`remoteDesktopAllowUnattended=false`、`remoteDesktopClipboard=false`、`remoteDesktopMaxFps=30`、`remoteDesktopMaxBitrateKbps=0`（自动：Host 按实际分辨率 × 帧率计算编码预算，正数为显式上限）。开启 Enabled / AllowControl / AllowUnattended 必须在本机确认。 |
 | D6 | v1 功能边界 | 不做：未建会话的截图预览、无人值守、多显示器切换、E2EE、录制、音频、多 room、文件/图片剪贴板。 |
 | D7 | 契约事实源 | `contracts/remote-desktop/1.0/schemas` 是唯一 wire 事实源；`docs/remote-desktop.md` 只写语义与示例；示例必须能在 `validate.py` 通过。 |
 | D8 | Desktop 渲染层 | 复制 Web 实现到 `desktop-workbench/renderer`，两边同组测试 + `protocol:check`；不先抽共享包。 |
@@ -100,7 +100,7 @@ HTTP 错误统一为：
 - 能力 id：`connector.remote_desktop.view` / `.control` / `.clipboard`，独立于
   `ProtocolCapabilitySet`，每个对象带单调递增 `revision`。
 - 设备设置 7 项与默认值见 §1 D5；`remoteDesktopMaxFps` 5–60，`remoteDesktopMaxBitrateKbps`
-  500–20000；未知字段 PATCH 仍 422。
+  为 `0`（自动）或 500–100000；未知字段 PATCH 仍 422。
 
 ## 3. 会话状态机与计时器
 

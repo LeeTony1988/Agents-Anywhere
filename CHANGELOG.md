@@ -22,6 +22,21 @@
 
 ### 远程桌面
 
+- 远程桌面在手机上更清晰了：默认画质从 1600 宽、4 Mbps 提高到 1920 宽，Android 首次进入使用 2560 宽的「清晰」档；采集缩放改为面积平均，质量菜单会显示实际编码分辨率和码率，切换清晰度会真正调整采集宽度。（[PENDING_QUALITY](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_QUALITY)）
+- 远程桌面不再使用固定的 20 Mbps 码率上限：Host 按实际采集分辨率和帧率计算编码预算，1080p30 约 9.3 Mbps、1440p30 约 16.6 Mbps、4K30 约 37 Mbps，再由网络带宽估计决定实际发送值；设备设置里填 `0` 即为自动，填正数仍是可选的硬上限。（[PENDING_BITRATE](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_BITRATE)）
+- Android 远程桌面的控制条新增「触控 / 鼠标」模式：切到鼠标后画面右下角出现拇指大小的独立触控板，触控板和滚轮轨道之间留有间隙，滑动时指针立即跟手移动，轻点当前光标点击、长按右键；按住板内加大的圆环会变成浅蓝色并按住左键，可以直接拖动窗口或选中文字，抬手后恢复并释放。右侧轨道上下拖动即可滚动，双指上下滑也能滚动；板内圆环显示实际鼠标在屏幕中的相对位置。画面本身保持比例居中、空白处为黑色，不再把右侧空白当成鼠标控制区。（[PENDING_POINTER](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_POINTER)）
+- Android 远程桌面把控制条和修饰键条收进左侧可折叠抽屉：收起时只在左边缘留一个小巧的半透明圆形图标按钮，白色图标加细边框，深色画面上也看得清，首次出现会轻微闪一下提示位置；点开是「控制面板」，里面可以切换「触控 / 鼠标」、申请或释放控制、截图、按修饰键和调出键盘，点标题栏的「<」收起，底部画面不再被常驻工具栏遮挡。（[PENDING_CONTROLS](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_CONTROLS)、[PENDING_HANDLE](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_HANDLE)）
+- Android 远程桌面鼠标的跟手进一步改善：连续滑动时不再回放过期位置，操作响应更快、停顿后不会继续追赶旧指针。（[PENDING_LATENCY](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_LATENCY)）
+- 远程桌面的滚轮方向修正：在网页、桌面和 Android 上向下滚动不再变成向上，滚轮轨道和双指滚动的方向保持一致。（[PENDING_WHEEL](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_WHEEL)）
+- Android 释放远程桌面控制后不会又立刻回到控制状态：第一次点「释放控制」就真正释放，不再需要点第二次；同时不会再误报「控制权已被收回」。（[PENDING_RELEASE](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_RELEASE)）
+- 释放远程桌面控制后，被控电脑的鼠标不会继续停在按下状态：即使最后的释放事件被媒体服务器丢弃，屏幕主机也会在控制权撤销时主动松开所有按键，之后可以正常点击其他软件。（[PENDING_RELEASE](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_RELEASE)）
+- Android 远程桌面按住鼠标拖动时切到后台、锁屏或断线，左键不会继续卡在按下状态；屏幕主机会处理客户端发来的释放事件，并忽略释放前还在路上的指针帧。（[PENDING_RELEASE](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_RELEASE)）
+- Android 上单指拖动现在就是鼠标拖拽：手指按下后按住左键移动，抬起时释放，可以直接拖窗口、选文字和拉滚动条；双指手势和拖拽锁不受影响。（[PENDING_DRAG](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_DRAG)）
+- 切换清晰度或其他控制请求失败时，远程桌面不会再退回错误页：画面和会话保持连接，只显示一条提示；重新进入观看页会复用原来的观看者名额，不再累积到「已达到并发会话上限」。（[PENDING_LIMIT](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_LIMIT)）
+- 远程桌面页旋转屏幕或切换全屏时不再重建界面，避免重复加入同一会话并占满观看者名额。（[PENDING_ROTATE](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_ROTATE)）
+- 远程桌面不会再出现「画面正常但鼠标键盘完全没反应」：屏幕主机在低权限沙箱里启动时会明确报错并提示从桌面启动 Connector；`SendInput` 被系统拒绝时会计入 `rejected` 并输出警告，不再伪装成 `applied`。（[PENDING_INPUT](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_INPUT)）
+- Android 上点按和拖动会落在手指按住的位置：画面按比例居中显示时，之前按整块画布换算坐标，点击会偏到离手指很远的桌面位置，看起来像是没有反应。（[PENDING_INPUT](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_INPUT)）
+- 观看者接管远程桌面控制权后立刻就能操作被控设备：以前只有一开始就以控制身份加入的客户端能发送输入，接管进来的客户端画面正常但鼠标键盘完全没反应。（[PENDING_INPUT](https://github.com/anywhere-labs/Agents-Anywhere/commit/PENDING_INPUT)）
 - Android 看远程桌面时可以横屏放大：旋转手机（或点顶部的全屏按钮）进入横屏，顶部栏和系统栏都会隐藏，画面按比例铺满整屏；左上角按钮退出全屏。（[94fffd61](https://github.com/anywhere-labs/Agents-Anywhere/commit/94fffd61)）
 - 远程桌面能看到真实桌面了：之前打包的屏幕主机没有启用系统采集，一直在发送空白画面；同时修掉了「截图和串流抢同一个采集会话」「桌面静止时串流自己退出」两个问题，后加入的观看者也能立即拿到画面。（[d4019b18](https://github.com/anywhere-labs/Agents-Anywhere/commit/d4019b18)）
 - Android 设备页会正常显示「看这台设备屏幕」入口：之前网络请求跑在主线程上被系统拦下，入口被静默隐藏，进到观看页也起不来会话；现在入口、会话、控制权申请与截图都可用。（[108832a6](https://github.com/anywhere-labs/Agents-Anywhere/commit/108832a6)）

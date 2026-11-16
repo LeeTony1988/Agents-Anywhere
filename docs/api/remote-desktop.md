@@ -16,7 +16,7 @@
 | `remoteDesktopAllowUnattended` | `false` | 无人值守时是否允许控制 |
 | `remoteDesktopClipboard` | `false` | 是否允许剪贴板同步 |
 | `remoteDesktopMaxFps` | `30` | 帧率上限（5–60） |
-| `remoteDesktopMaxBitrateKbps` | `4000` | 码率上限（500–20000） |
+| `remoteDesktopMaxBitrateKbps` | `0` | 码率上限；`0` = 按分辨率/帧率自动，正数范围 500–100000 |
 
 读取设备能力：
 
@@ -48,7 +48,7 @@ POST /api/v2/remote-desktop/sessions
   "connectorId": "conn_x",
   "displayId": "0",
   "mode": "control",
-  "quality": {"maxFps": 30, "maxBitrateKbps": 4000, "maxWidth": 1920},
+  "quality": {"maxFps": 30, "maxBitrateKbps": 0, "maxWidth": 1920},
   "client": {"platform": "web", "appVersion": "2.3.0", "viewport": {"width": 1440, "height": 900}},
   "link": {"sessionId": "sess_abc"}
 }

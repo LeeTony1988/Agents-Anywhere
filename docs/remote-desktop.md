@@ -347,7 +347,7 @@ Host 与 Connector 之间的 stdio 协议（内部，不对外）：
 
 ```json
 {"id": 7, "method": "host.start", "params": {"sessionId": "rds_1", "displayId": "0", "mode": "control",
-  "quality": {"maxFps": 30, "maxBitrateKbps": 4000, "maxWidth": 1920},
+  "quality": {"maxFps": 30, "maxBitrateKbps": 0, "maxWidth": 1920},
   "media": {"url": "wss://rtc.example.com", "room": "rd_rds_1", "token": "eyJ...", "identity": "host:conn_1"}}}
 {"id": 7, "result": {"accepted": true}}
 {"event": "state", "params": {"sessionId": "rds_1", "state": "publishing"}}
@@ -497,6 +497,11 @@ accepted。`rd_*` 是 Connector 内部错误码，Server 映射为 `remote_deskt
 controller 降权，host 用 controller identity epoch 丢弃旧输入；`RemoveParticipant` 只用于策略吊销
 与会话结束。
 
+token 里的权限在入会时就固定了，`UpdateParticipant` 是唯一能改已入会参与者权限的途径。因此**接管
+控制权时 Server 必须用 `UpdateParticipant(canPublishData=true)` 给新 controller 提权**：以 viewer 身份
+入会（`canPublishData=false`）的客户端即使抢到了控制权，SFU 也会静默丢弃它发出的 `aa.input` /
+`aa.pointer`，表现就是「画面正常、鼠标键盘没反应」。`release_control` 与租约过期仍照旧降权。
+
 开发/测试允许 `provider=noop`：创建响应 `media=null`，只验证控制面；生产未配置 LiveKit 时能力
 `supported=false`，功能整体隐藏。
 
@@ -510,6 +515,12 @@ ping/低频 pointer；`aa.pointer`（lossy/unordered，12 字节二进制）承�
 x/y 归一化 `0..65535`，seq 按 u32 回绕。十六进制测试向量见
 [`contracts/remote-desktop/1.0/pointer-frame.md`](../contracts/remote-desktop/1.0/pointer-frame.md)。
 `aa.input` 的 JSON `seq` 与 `aa.pointer` 的 `seq` 是两个独立计数器。
+
+Windows 上 `aa-screen-host` 必须以**交互用户相同的完整性级别**运行（正常桌面启动即 Medium）。如果
+Connector 把 host 拉进低权限沙箱/Job，host 的 `SendInput` 会被 UIPI 静默拒绝：Connector 仍会看到
+`data-channel input: applied=N`，但鼠标键盘没有任何效果。host 在 `hello.capabilities.integrity` 里上报
+自身级别；Connector 发现 `low`/`untrusted` 时以 `rd_host_integrity_low` 拒绝启动，而不是让用户对着
+一张永远不能控制的画面排查。
 
 ### 7.7 剪贴板
 
@@ -525,7 +536,7 @@ HTTP/RPC 上传输，避免 Server 看到内容。
 ```text
 remoteDesktopEnabled=false、remoteDesktopAllowControl=false、remoteDesktopRequireConsent=true、
 remoteDesktopAllowUnattended=false、remoteDesktopClipboard=false、
-remoteDesktopMaxFps=30（5–60）、remoteDesktopMaxBitrateKbps=4000（500–20000）
+remoteDesktopMaxFps=30（5–60）、remoteDesktopMaxBitrateKbps=0（0=自动，正数 500–100000）
 ```
 
 `remoteDesktopRequireConsent` 只约束控制会话；观看由 `remoteDesktopEnabled`（本机显式开启）承担，
@@ -576,7 +587,7 @@ remote_desktop_not_found      404  会话不存在或不属于当前用户
 | 手势 | 行为 |
 | --- | --- |
 | 单指轻点 | 左键单击（在指针位置） |
-| 单指拖动 | 指针移动（相对模式，灵敏度可调） |
+| 单指拖动 | 在按下点按住左键，指针相对移动（灵敏度可调），抬起时释放左键 |
 | 长按 500 ms | 右键单击 |
 | 双指上下滑 | 滚轮 |
 | 双指捏合 | 画面缩放（本地渲染层，不改变远端分辨率） |
@@ -584,8 +595,30 @@ remote_desktop_not_found      404  会话不存在或不属于当前用户
 | 三指下滑 | 呼出键盘 |
 | 悬浮按钮 | Ctrl / Alt / Shift / Win / Esc / Tab 修饰键锁 |
 
-渲染层用 `AspectFit` + 可平移缩放，输入坐标要经过「视图变换逆矩阵」再归一化——这是最容易出现
-「点不准」的地方，需要单元测试覆盖缩放/偏移组合。
+渲染层用 `AspectFit` + 可平移缩放，画面按实际帧尺寸居中，留白是视频表面的黑色而不是白色控制区；
+输入坐标要经过「视图变换逆矩阵」再归一化——这是最容易出现「点不准」的地方，需要单元测试
+覆盖缩放/偏移组合。
+
+控制条的「触控 / 鼠标」开关切换两种映射：
+
+- **触控（Direct）**：上表行为不变；点哪跳哪，单指拖动直接按住左键拖拽。
+- **鼠标（Mouse）**：画面右下角出现一块拇指大小的半透明触控板（约画面宽度的
+  28%、最宽 132 dp），右侧隔着 8 dp 的间隙是一条独立的滚轮轨道，两者可分别触摸或
+  拖动，不会互相抢触摸。面板内单指滑动只移动光标，轻点在当前光标左键单击，长按/双指
+  轻点右键，双击进入拖拽锁定。面板内按 `光标位置 × 面板尺寸` 画一个光标环，直接
+  指示实际鼠标在远端屏幕里的位置；按住这个圆环不松开，圆环变成浅蓝色并按住左键，
+  手指可以继续拖动窗口或选中文字，抬起后恢复白色并释放左键。滚轮轨道上下拖动即
+  发送滚轮事件，双指上下滑也同样滚动；`wheel` 的 `dy` 为正值表示向下滚动（与浏览器
+  `deltaY` 一致），Windows 主机注入滚轮时取反。面板外仍按触控方式操作画面，右侧
+  空白不再承担鼠标控制。触控板使用随速度变化的指针增益（慢速 1.0×、快速约 2.75×），
+  回放同一帧内的历史采样，并由客户端 conflated 指针通道只发送最新指针帧；屏幕主机
+  以 8 ms 周期排空输入队列，降低本地到主机的排队延迟。
+
+控制条和修饰键条默认收进左侧的可折叠抽屉：收起时只在左边缘保留一个小巧的半透明圆形
+图标按钮（白色图标加细边框，不跟随主题色，浮在深色或浅色画面上都看得清；首次出现会
+轻微闪动提示位置），点击展开「控制面板」，再点抽屉右上角收起，底部画面和鼠标触控板
+不再被常驻工具栏遮挡。竞品做法与 P0/P1/P2 方案见
+[远程桌面手机端鼠标精细化调研](remote-desktop-pointer-research.md)。
 
 ### 8.2 键盘
 
@@ -598,8 +631,9 @@ remote_desktop_not_found      404  会话不存在或不属于当前用户
 
 - Wi-Fi ↔ 蜂窝切换：LiveKit SDK 自带 ICE restart / 重连；客户端监听 `Reconnecting` 状态并显示浮层，
   超过 15 s 提示「网络不稳定」。
-- 后台：Android 进入 `onStop` 后停止渲染但保持 30 s 重连窗口；iOS 后台立即断开（系统限制），
-  回前台重新 join（用现有 token 或续签）。
+- 后台：Android 进入 `onStop` 后停止渲染但保持 30 s 重连窗口；暂停时先发 `release_all`，
+  再发一帧空按钮掩码的 `aa.pointer`，主机据此释放按键并挡住仍在路上的旧指针帧。iOS
+  后台立即断开（系统限制），回前台重新 join（用现有 token 或续签）。
 - 画中画：Android `PictureInPictureParams`、iOS `AVPictureInPictureController`（基于 `AVSampleBufferDisplayLayer`），P3 再做。
 - 锁屏/来电：暂停输入，恢复后重新订阅。
 
@@ -607,14 +641,19 @@ remote_desktop_not_found      404  会话不存在或不属于当前用户
 
 | 场景 | 参数 |
 | --- | --- |
-| 默认（手机竖屏） | 30 fps，maxWidth 1600，maxBitrate 3000 kbps |
-| 文本/代码阅读 | 30 fps，`contentHint=text`，优先清晰度（`degradationPreference=maintain-resolution`） |
+| 默认（手机竖屏） | 30 fps，maxWidth 1920；码率自动（约 9.3 Mbps @1080p30） |
+| 清晰（Android） | 30 fps，maxWidth 2560；码率自动（约 16.6 Mbps @1440p30） |
+| 文本/代码阅读 | 30 fps，优先清晰度（`degradationPreference=maintain-resolution`） |
 | 快速滚动/视频 | 45–60 fps，`maintain-framerate` |
-| 弱网（RTT>200ms 或丢包>5%） | 自动降到 15 fps / 1200 kbps，客户端可手动「流畅/清晰」 |
-| 只观看（预览） | 5 fps，800 kbps |
+| 弱网（RTT>200ms 或丢包>5%） | BWE 自动降码率/帧率，客户端可手动「流畅/清晰」 |
+| 只观看（预览） | 5 fps，自动码率下限 2 Mbps |
 
-`update_quality` 由客户端发起、Server 转发 `remoteDesktop.updateQuality`，host 通过
-LiveKit `setParameters` 调整编码目标码率。
+`maxBitrateKbps=0` 表示自动：host 按实际采集宽高和 `maxFps` 计算编码器预算
+（`宽 × 高 × fps × 0.15 bit/pixel`，约 9.3 Mbps @1080p30、37 Mbps @4K30），
+再由 WebRTC 带宽估计决定实际发送值。正数仍是显式上限，供旧客户端或特殊部署使用。
+
+`update_quality` 由客户端发起、Server 转发 `remoteDesktop.updateQuality`，host 重新发布视频轨
+以应用新的码率/帧率目标；`maxWidth` 变化时同时重建采集源，所以切换清晰度会改变实际画面分辨率。
 
 ---
 
@@ -679,9 +718,12 @@ LiveKit `setParameters` 调整编码目标码率。
 | 场景 | 码率 |
 | --- | --- |
 | 1080p 静态文档 | 0.3–1 Mbps |
-| 1080p 滚动/打字 | 1.5–3 Mbps |
-| 1440p 视频播放 | 4–8 Mbps |
-| 手机竖屏 720p | 0.8–2 Mbps |
+| 1080p 滚动/打字 | 1.5–5 Mbps |
+| 1440p 视频播放 | 4–12 Mbps |
+| 手机竖屏 720p | 0.8–3 Mbps |
+
+以上是**实际发送**的经验值；编码器预算是按分辨率 × 帧率自动计算的，通常更高
+（1080p30 约 9.3 Mbps、1440p30 约 16.6 Mbps），静态画面不会一直跑满预算。
 
 主机上行 = 单路（发到 SFU）；服务器下行 = 观看者数 × 码率。10 个并发观看 3 Mbps ≈ 30 Mbps 出向。
 
