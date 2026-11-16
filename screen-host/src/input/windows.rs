@@ -30,6 +30,17 @@ use super::{
 /// Lines per wheel notch for line-unit scroll (SPI_GETWHEELSCROLLLINES default).
 const LINES_PER_NOTCH: i32 = 3;
 
+/// Converts the protocol's `dy` (positive means scroll down, matching browser
+/// `deltaY`) into `MOUSEEVENTF_WHEEL` data. Windows treats a positive wheel delta as
+/// rotating away from the user, which scrolls up, so the sign flips exactly once here.
+fn wheel_delta(dy: f64, unit: WheelUnit) -> i32 {
+    let magnitude = match unit {
+        WheelUnit::Pixel => dy.round() as i32,
+        WheelUnit::Line => (dy * LINES_PER_NOTCH as f64).round() as i32,
+    };
+    -magnitude
+}
+
 /// W3C `KeyboardEvent.code` -> Windows virtual-key code, for the subset a remote
 /// desktop controller needs. Unknown codes are logged and dropped.
 fn w3c_code_to_vk(code: &str) -> Option<u16> {
@@ -212,16 +223,17 @@ impl WindowsInputSink {
         }
         if !self.warned_rejected.swap(true, Ordering::Relaxed) {
             warn!(
-                "SendInput accepted {sent}/{} events; the input desktop is not ours \
-                 (locked screen, secure desktop or disconnected session). \
-                 Further failures are not logged.",
-                inputs.len()
+                "SendInput accepted {sent}/{} events (last_error={}); the input desktop \
+                 is not ours or the foreground window is at a higher integrity level \
+                 (UIPI). Further failures are not logged.",
+                inputs.len(),
+                std::io::Error::last_os_error(),
             );
         }
         false
     }
 
-    fn send_mouse(&self, flags: MOUSE_EVENT_FLAGS, data: i32, dx: i32, dy: i32) {
+    fn send_mouse(&self, flags: MOUSE_EVENT_FLAGS, data: i32, dx: i32, dy: i32) -> bool {
         let input = INPUT {
             r#type: INPUT_MOUSE,
             Anonymous: INPUT_0 {
@@ -235,10 +247,10 @@ impl WindowsInputSink {
                 },
             },
         };
-        let _ = self.inject(&[input]);
+        self.inject(&[input])
     }
 
-    fn send_key(&self, vk: u16, key_up: bool) {
+    fn send_key(&self, vk: u16, key_up: bool) -> bool {
         let flags: KEYBD_EVENT_FLAGS = if key_up {
             KEYEVENTF_KEYUP
         } else {
@@ -256,10 +268,10 @@ impl WindowsInputSink {
                 },
             },
         };
-        let _ = self.inject(&[input]);
+        self.inject(&[input])
     }
 
-    fn send_unicode(&self, c: char, key_up: bool) {
+    fn send_unicode(&self, c: char, key_up: bool) -> bool {
         let key_flags: KEYBD_EVENT_FLAGS = if key_up {
             KEYEVENTF_KEYUP
         } else {
@@ -283,10 +295,10 @@ impl WindowsInputSink {
         if encoded.len() > 1 {
             // Surrogate pair: second unit carries KEYEVENTF_UNICODE too.
             let inputs = [mk_input(encoded[0]), mk_input(encoded[1])];
-            let _ = self.inject(&inputs);
+            self.inject(&inputs)
         } else {
             let inputs = [mk_input(encoded[0])];
-            let _ = self.inject(&inputs);
+            self.inject(&inputs)
         }
     }
 
@@ -327,7 +339,7 @@ impl InputSink for WindowsInputSink {
                 }
                 let (abs_x, abs_y) = self.normalized_to_absolute(*x, *y);
                 // Move first so down/up land on the right position.
-                self.send_mouse(
+                let mut accepted = self.send_mouse(
                     MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
                     0,
                     abs_x,
@@ -335,11 +347,11 @@ impl InputSink for WindowsInputSink {
                 );
                 match (action, button) {
                     (PointerAction::Down, Some(b)) => {
-                        self.send_mouse(button_down_flag(*b), 0, 0, 0);
+                        accepted &= self.send_mouse(button_down_flag(*b), 0, 0, 0);
                         self.pressed_buttons.insert(*b);
                     }
                     (PointerAction::Up, Some(b)) => {
-                        self.send_mouse(button_up_flag(*b), 0, 0, 0);
+                        accepted &= self.send_mouse(button_up_flag(*b), 0, 0, 0);
                         self.pressed_buttons.remove(b);
                     }
                     (PointerAction::Down | PointerAction::Up, None) => {
@@ -347,15 +359,16 @@ impl InputSink for WindowsInputSink {
                     }
                     (PointerAction::Move, _) => {}
                 }
-                Ok(())
+                if accepted {
+                    Ok(())
+                } else {
+                    Err(InputEventError::Rejected)
+                }
             }
             InputEvent::Wheel { dy, unit, .. } => {
-                let delta = match unit {
-                    WheelUnit::Pixel => dy.round() as i32,
-                    WheelUnit::Line => (dy * LINES_PER_NOTCH as f64).round() as i32,
-                };
-                if delta != 0 {
-                    self.send_mouse(MOUSEEVENTF_WHEEL, delta, 0, 0);
+                let delta = wheel_delta(*dy, *unit);
+                if delta != 0 && !self.send_mouse(MOUSEEVENTF_WHEEL, delta, 0, 0) {
+                    return Err(InputEventError::Rejected);
                 }
                 Ok(())
             }
@@ -367,29 +380,39 @@ impl InputSink for WindowsInputSink {
                     return Ok(());
                 };
                 let key_up = matches!(action, KeyAction::Up);
+                let mut accepted = true;
                 // Hold declared modifiers for this event so combos inject correctly.
                 if !key_up {
                     for m in mods {
-                        self.send_key(mod_to_vk(*m), false);
+                        accepted &= self.send_key(mod_to_vk(*m), false);
                     }
                 }
-                self.send_key(vk, key_up);
+                accepted &= self.send_key(vk, key_up);
                 if key_up {
                     for m in mods {
-                        self.send_key(mod_to_vk(*m), true);
+                        accepted &= self.send_key(mod_to_vk(*m), true);
                     }
                     self.pressed_keys.remove(code);
                 } else {
                     self.pressed_keys.insert(code.clone());
                 }
-                Ok(())
+                if accepted {
+                    Ok(())
+                } else {
+                    Err(InputEventError::Rejected)
+                }
             }
             InputEvent::Text { text, .. } => {
+                let mut accepted = true;
                 for c in text.chars() {
-                    self.send_unicode(c, false);
-                    self.send_unicode(c, true);
+                    accepted &= self.send_unicode(c, false);
+                    accepted &= self.send_unicode(c, true);
                 }
-                Ok(())
+                if accepted {
+                    Ok(())
+                } else {
+                    Err(InputEventError::Rejected)
+                }
             }
             InputEvent::Clipboard {
                 action,
@@ -408,6 +431,10 @@ impl InputSink for WindowsInputSink {
                 ClipboardAction::Request => Ok(()),
             },
             InputEvent::Ping { .. } => Ok(()),
+            InputEvent::ReleaseAll { .. } => {
+                self.release_all();
+                Ok(())
+            }
         }
     }
 
@@ -531,6 +558,15 @@ mod tests {
             virtual_desktop_absolute(display, 0, 0, 1, 1, 5.0, -5.0),
             (0, 0)
         );
+    }
+
+    #[test]
+    fn wheel_direction_matches_the_protocol() {
+        // Positive protocol dy = scroll down; Windows positive wheel = scroll up.
+        assert_eq!(wheel_delta(120.0, WheelUnit::Pixel), -120);
+        assert_eq!(wheel_delta(-120.0, WheelUnit::Pixel), 120);
+        assert_eq!(wheel_delta(1.0, WheelUnit::Line), -LINES_PER_NOTCH);
+        assert_eq!(wheel_delta(0.0, WheelUnit::Pixel), 0);
     }
 
     #[test]

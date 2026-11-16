@@ -67,6 +67,11 @@ pub trait Publisher: Send {
     /// Best-effort keyframe request (decisions §1.1.4); returns whether it was sent.
     fn request_keyframe(&mut self) -> bool;
 
+    /// Applies new quality settings (and the capture size they produce) to the running
+    /// publisher. Publishers without a mutable encoder ignore it; the host still restarts
+    /// capture when `maxWidth` changes.
+    fn update_quality(&mut self, _quality: &crate::config::Quality, _width: u32, _height: u32) {}
+
     /// Drains input packets received over the media data channel. The default is empty:
     /// publishers without a data plane simply never deliver input that way.
     fn take_data(&mut self) -> Vec<ReceivedData> {

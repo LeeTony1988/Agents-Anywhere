@@ -5,7 +5,7 @@ use aa_screen_host::capture::CaptureSource;
 use aa_screen_host::config::{HostConfig, Quality, MAX_FPS, MIN_BITRATE_KBPS, MIN_WIDTH};
 use aa_screen_host::host::{Host, HostState};
 use aa_screen_host::input::fake::FakeInputSink;
-use aa_screen_host::input::InputSink;
+use aa_screen_host::input::{InputEvent, InputSink, PointerAction, PointerButton};
 use aa_screen_host::protocol::{
     response_ok, EventKind, HostControlMessage, Method, ERR_NOT_CONTROLLER,
 };
@@ -120,6 +120,81 @@ fn release_all_clears_pressed() {
 }
 
 #[test]
+fn clearing_control_releases_a_held_mouse_button() {
+    // Reproduces the "after releasing control the host desktop ignores clicks" bug:
+    // the client's final release_all races with the SFU revoking publish-data, so the
+    // host must release its own pressed set when the controller grant is cleared.
+    #[derive(Clone, Default)]
+    struct ReleasingSink(std::sync::Arc<std::sync::Mutex<Vec<InputEvent>>>);
+
+    impl InputSink for ReleasingSink {
+        fn apply(
+            &mut self,
+            event: &InputEvent,
+        ) -> Result<(), aa_screen_host::input::InputEventError> {
+            self.0.lock().unwrap().push(event.clone());
+            Ok(())
+        }
+
+        fn release_all(&mut self) -> (Vec<String>, Vec<String>) {
+            self.0.lock().unwrap().push(InputEvent::Pointer {
+                seq: 99,
+                action: PointerAction::Up,
+                x: 0.5,
+                y: 0.5,
+                button: Some(PointerButton::Left),
+                display: 0,
+            });
+            (Vec::new(), vec!["left".to_string()])
+        }
+
+        fn pressed_keys(&self) -> Vec<String> {
+            Vec::new()
+        }
+
+        fn pressed_buttons(&self) -> Vec<String> {
+            vec!["left".to_string()]
+        }
+    }
+
+    let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut host = Host::new(
+        &HostConfig::default(),
+        Box::new(FakeCaptureSource::new(2, 640, 360)),
+        Box::new(StubPublisher::new()),
+        Box::new(ReleasingSink(events.clone())),
+        Box::new(aa_screen_host::host::VecEventSink::default()),
+    );
+    host.handle_request(
+        1,
+        Method::HostControlGrant,
+        &serde_json::json!({"identity": "viewer:pt_a"}),
+    );
+    let press = serde_json::json!({
+        "identity": "viewer:pt_a",
+        "events": [{"v":1,"seq":1,"t":"pointer","a":"down","b":"left","x":0.5,"y":0.5}]
+    });
+    host.handle_request(2, Method::HostInput, &press);
+
+    host.handle_request(
+        3,
+        Method::HostControlGrant,
+        &serde_json::json!({"identity": ""}),
+    );
+    assert!(
+        events.lock().unwrap().iter().any(|event| matches!(
+            event,
+            InputEvent::Pointer {
+                action: PointerAction::Up,
+                button: Some(PointerButton::Left),
+                ..
+            }
+        )),
+        "clearing control must inject a left-button up, not leave Windows in a drag"
+    );
+}
+
+#[test]
 fn input_from_non_controller_is_rejected() {
     let (mut host, _log) = make_host2();
     host.handle_request(
@@ -152,6 +227,22 @@ fn input_from_non_controller_is_rejected() {
     assert!(serde_json::to_string(&resp)
         .unwrap()
         .contains("\"appliedSeq\":9"));
+}
+
+#[test]
+fn running_host_emits_stats_events() {
+    let (mut host, log) = make_host2();
+    host.handle_request(1, Method::HostStart, &start_params("rds_1"));
+
+    host.emit_stats();
+
+    assert!(
+        log.lock().unwrap().iter().any(|message| {
+            let text = serde_json::to_string(message).unwrap();
+            text.contains("\"event\":\"stats\"")
+        }),
+        "the connector needs periodic stats to show actual resolution/bitrate"
+    );
 }
 
 #[test]
@@ -280,7 +371,7 @@ fn response_ok_shape() {
 fn quality_serde_defaults() {
     let q: Quality = serde_json::from_str("{}").unwrap();
     assert_eq!(q.max_fps, 30);
-    assert_eq!(q.max_bitrate_kbps, 4000);
+    assert_eq!(q.max_bitrate_kbps, 0);
     assert_eq!(q.max_width, 1920);
 }
 
@@ -386,4 +477,419 @@ fn screenshot_format_falls_back_to_png_for_unknown_values() {
     };
     let result = r.result.expect("screenshot result");
     assert_eq!(result["format"], "png");
+}
+
+// ─── Media data-channel input (`aa.input` / `aa.pointer`) ────────────────────
+//
+// The primary input plane of a viewer is the LiveKit data channel, not `host.input`:
+// `Host::apply_channel_input` drains what the publisher received and hands it to the same
+// sink. These tests pin the three ways that path can silently do nothing: no packet, a
+// packet from someone who is not the controller, and a malformed payload.
+
+mod channel_input {
+    use super::*;
+    use aa_screen_host::input::{InputEvent, KeyAction, PointerAction, PointerButton};
+    use aa_screen_host::pointer::{encode_pointer_frame, PointerFrame, POINTER_TYPE};
+    use aa_screen_host::publish::{MediaGrant, Publisher, ReceivedData, Stats};
+    use std::sync::{Arc, Mutex};
+
+    /// Input sink that records what the host injected.
+    #[derive(Clone, Default)]
+    struct RecordedSink {
+        events: Arc<Mutex<Vec<InputEvent>>>,
+        releases: Arc<Mutex<usize>>,
+    }
+
+    impl InputSink for RecordedSink {
+        fn apply(
+            &mut self,
+            event: &InputEvent,
+        ) -> Result<(), aa_screen_host::input::InputEventError> {
+            self.events.lock().unwrap().push(event.clone());
+            Ok(())
+        }
+
+        fn release_all(&mut self) -> (Vec<String>, Vec<String>) {
+            *self.releases.lock().unwrap() += 1;
+            (Vec::new(), Vec::new())
+        }
+
+        fn pressed_keys(&self) -> Vec<String> {
+            Vec::new()
+        }
+
+        fn pressed_buttons(&self) -> Vec<String> {
+            Vec::new()
+        }
+    }
+
+    /// Publisher whose data queue the test fills, standing in for a LiveKit room.
+    #[derive(Clone, Default)]
+    struct ChannelPublisher(Arc<Mutex<Vec<ReceivedData>>>);
+
+    impl Publisher for ChannelPublisher {
+        fn start(&mut self, _: &str, _: &MediaGrant, _: &Quality, _: u32, _: u32) {}
+        fn publish_frame(&mut self, _: &aa_screen_host::capture::Frame) {}
+        fn stop(&mut self) {}
+        fn request_keyframe(&mut self) -> bool {
+            false
+        }
+        fn take_data(&mut self) -> Vec<ReceivedData> {
+            std::mem::take(&mut *self.0.lock().unwrap())
+        }
+        fn stats(&self) -> Stats {
+            Stats::default()
+        }
+    }
+
+    fn make_host() -> (
+        Host,
+        Arc<Mutex<Vec<InputEvent>>>,
+        Arc<Mutex<Vec<ReceivedData>>>,
+        Arc<Mutex<usize>>,
+    ) {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let queue = Arc::new(Mutex::new(Vec::new()));
+        let releases = Arc::new(Mutex::new(0usize));
+        let host = Host::new(
+            &HostConfig::default(),
+            Box::new(FakeCaptureSource::new(1, 640, 360)),
+            Box::new(ChannelPublisher(queue.clone())),
+            Box::new(RecordedSink {
+                events: events.clone(),
+                releases: releases.clone(),
+            }),
+            Box::new(aa_screen_host::host::VecEventSink::default()),
+        );
+        (host, events, queue, releases)
+    }
+
+    fn key_event(seq: u32, code: &str) -> serde_json::Value {
+        serde_json::json!({"v":1,"seq":seq,"t":"key","a":"down","code":code})
+    }
+
+    fn packet(topic: &str, from: &str, payload: Vec<u8>) -> ReceivedData {
+        ReceivedData {
+            topic: topic.to_string(),
+            payload,
+            from: from.to_string(),
+        }
+    }
+
+    #[test]
+    fn applies_json_input_from_the_controller() {
+        let (mut host, events, queue, _) = make_host();
+        host.handle_request(
+            1,
+            Method::HostControlGrant,
+            &serde_json::json!({"identity": "viewer:pt_a"}),
+        );
+        queue.lock().unwrap().push(packet(
+            "aa.input",
+            "viewer:pt_a",
+            key_event(1, "KeyA").to_string().into_bytes(),
+        ));
+
+        host.apply_channel_input();
+
+        let events = events.lock().unwrap();
+        assert_eq!(
+            events.as_slice(),
+            &[InputEvent::Key {
+                seq: 1,
+                action: KeyAction::Down,
+                code: "KeyA".to_string(),
+                mods: Vec::new(),
+            }]
+        );
+    }
+
+    #[test]
+    fn ignores_pointer_frames_after_control_is_released() {
+        let (mut host, events, queue, _) = make_host();
+        host.handle_request(
+            1,
+            Method::HostControlGrant,
+            &serde_json::json!({"identity": "viewer:pt_a"}),
+        );
+        host.handle_request(
+            2,
+            Method::HostControlGrant,
+            &serde_json::json!({"identity": ""}),
+        );
+        queue.lock().unwrap().push(packet(
+            "aa.pointer",
+            "viewer:pt_a",
+            encode_pointer_frame(&PointerFrame {
+                frame_type: POINTER_TYPE,
+                flags: 1,
+                buttons: aa_screen_host::pointer::BUTTON_LEFT,
+                x: 32768,
+                y: 32768,
+                seq: 5,
+            })
+            .to_vec(),
+        ));
+
+        host.apply_channel_input();
+
+        assert!(
+            events.lock().unwrap().is_empty(),
+            "a late drag frame must not re-press the button after control is released"
+        );
+    }
+
+    #[test]
+    fn applies_release_all_from_the_controller() {
+        let (mut host, _events, queue, releases) = make_host();
+        host.handle_request(
+            1,
+            Method::HostControlGrant,
+            &serde_json::json!({"identity": "viewer:pt_a"}),
+        );
+        *releases.lock().unwrap() = 0;
+        {
+            let mut queue = queue.lock().unwrap();
+            queue.push(packet(
+                "aa.input",
+                "viewer:pt_a",
+                key_event(1, "KeyA").to_string().into_bytes(),
+            ));
+            queue.push(packet(
+                "aa.input",
+                "viewer:pt_a",
+                serde_json::json!({"v":1,"t":"release_all","reason":"pagehide"})
+                    .to_string()
+                    .into_bytes(),
+            ));
+        }
+
+        host.apply_channel_input();
+
+        assert_eq!(
+            1,
+            *releases.lock().unwrap(),
+            "release_all must reach the sink so a held left button is released"
+        );
+        assert!(
+            _events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|event| matches!(event, InputEvent::Key { .. })),
+            "the key before release_all should still have been injected"
+        );
+    }
+
+    #[test]
+    fn release_all_bypasses_the_motion_budget() {
+        let (mut host, _events, queue, releases) = make_host();
+        host.handle_request(
+            1,
+            Method::HostControlGrant,
+            &serde_json::json!({"identity": "viewer:pt_a"}),
+        );
+        *releases.lock().unwrap() = 0;
+        {
+            let mut queue = queue.lock().unwrap();
+            for seq in 1..=120 {
+                queue.push(packet(
+                    "aa.input",
+                    "viewer:pt_a",
+                    key_event(seq, "KeyA").to_string().into_bytes(),
+                ));
+            }
+            // The 120/s window is full; this release must still reach the sink.
+            queue.push(packet(
+                "aa.input",
+                "viewer:pt_a",
+                serde_json::json!({"v":1,"t":"release_all","reason":"pagehide"})
+                    .to_string()
+                    .into_bytes(),
+            ));
+        }
+
+        host.apply_channel_input();
+
+        assert_eq!(
+            1,
+            *releases.lock().unwrap(),
+            "release_all must bypass the full 120/s motion budget"
+        );
+    }
+
+    #[test]
+    fn applies_pointer_frames_from_the_lossy_channel() {
+        let (mut host, events, queue, _) = make_host();
+        host.handle_request(
+            1,
+            Method::HostControlGrant,
+            &serde_json::json!({"identity": "viewer:pt_a"}),
+        );
+        let frame = encode_pointer_frame(&PointerFrame {
+            frame_type: POINTER_TYPE,
+            flags: 0,
+            buttons: 0,
+            x: 65535,
+            y: 0,
+            seq: 42,
+        });
+        queue
+            .lock()
+            .unwrap()
+            .push(packet("aa.pointer", "viewer:pt_a", frame.to_vec()));
+
+        host.apply_channel_input();
+
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 1, "one frame must inject one move");
+        match &events[0] {
+            InputEvent::Pointer {
+                seq,
+                action,
+                x,
+                y,
+                button,
+                ..
+            } => {
+                assert_eq!(*seq, 42);
+                assert_eq!(*action, PointerAction::Move);
+                assert!((*x - 1.0).abs() < 1e-6, "x={x}");
+                assert!(*y < 1e-6, "y={y}");
+                assert!(button.is_none());
+            }
+            other => panic!("expected a pointer move, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pointer_frame_button_bits_press_and_release_the_drag_button() {
+        let (mut host, events, queue, _) = make_host();
+        host.handle_request(
+            1,
+            Method::HostControlGrant,
+            &serde_json::json!({"identity": "viewer:pt_a"}),
+        );
+        let pressed = encode_pointer_frame(&PointerFrame {
+            frame_type: POINTER_TYPE,
+            flags: 1,
+            buttons: aa_screen_host::pointer::BUTTON_LEFT,
+            x: 32768,
+            y: 32768,
+            seq: 10,
+        });
+        let released = encode_pointer_frame(&PointerFrame {
+            frame_type: POINTER_TYPE,
+            flags: 1,
+            buttons: 0,
+            x: 33000,
+            y: 32768,
+            seq: 11,
+        });
+        // A stale frame (lower seq) must not resurrect the button state.
+        let stale = encode_pointer_frame(&PointerFrame {
+            frame_type: POINTER_TYPE,
+            flags: 0,
+            buttons: 0,
+            x: 0,
+            y: 0,
+            seq: 9,
+        });
+        {
+            let mut queue = queue.lock().unwrap();
+            queue.push(packet("aa.pointer", "viewer:pt_a", pressed.to_vec()));
+            queue.push(packet("aa.pointer", "viewer:pt_a", released.to_vec()));
+            queue.push(packet("aa.pointer", "viewer:pt_a", stale.to_vec()));
+        }
+
+        host.apply_channel_input();
+
+        let events = events.lock().unwrap();
+        let actions: Vec<(PointerAction, Option<PointerButton>)> = events
+            .iter()
+            .filter_map(|event| match event {
+                InputEvent::Pointer { action, button, .. } => Some((*action, *button)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            actions,
+            vec![
+                (PointerAction::Down, Some(PointerButton::Left)),
+                (PointerAction::Move, None),
+                (PointerAction::Up, Some(PointerButton::Left)),
+                (PointerAction::Move, None),
+            ],
+            "drag press/release is applied from the lossy frame, stale frame ignored"
+        );
+    }
+
+    #[test]
+    fn drops_packets_from_anyone_but_the_controller() {
+        let (mut host, events, queue, _) = make_host();
+        host.handle_request(
+            1,
+            Method::HostControlGrant,
+            &serde_json::json!({"identity": "viewer:pt_a"}),
+        );
+        {
+            let mut queue = queue.lock().unwrap();
+            queue.push(packet(
+                "aa.input",
+                "viewer:pt_evil",
+                key_event(1, "KeyA").to_string().into_bytes(),
+            ));
+            queue.push(packet(
+                "aa.pointer",
+                "viewer:pt_evil",
+                encode_pointer_frame(&PointerFrame {
+                    frame_type: POINTER_TYPE,
+                    flags: 0,
+                    buttons: 0,
+                    x: 1,
+                    y: 1,
+                    seq: 1,
+                })
+                .to_vec(),
+            ));
+        }
+
+        host.apply_channel_input();
+
+        assert!(
+            events.lock().unwrap().is_empty(),
+            "input from a non-controller must never reach the OS"
+        );
+    }
+
+    #[test]
+    fn ignores_malformed_payloads_and_unknown_topics() {
+        let (mut host, events, queue, _) = make_host();
+        host.handle_request(
+            1,
+            Method::HostControlGrant,
+            &serde_json::json!({"identity": "viewer:pt_a"}),
+        );
+        {
+            let mut queue = queue.lock().unwrap();
+            queue.push(packet("aa.input", "viewer:pt_a", b"not json".to_vec()));
+            queue.push(packet("aa.pointer", "viewer:pt_a", vec![0x01, 0x00]));
+            queue.push(packet("aa.something", "viewer:pt_a", b"{}".to_vec()));
+            // A good packet after the bad ones still lands.
+            queue.push(packet(
+                "aa.input",
+                "viewer:pt_a",
+                key_event(9, "KeyB").to_string().into_bytes(),
+            ));
+        }
+
+        host.apply_channel_input();
+
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 1, "only the valid packet is injected");
+        assert!(matches!(
+            &events[0],
+            InputEvent::Key { code, .. } if code == "KeyB"
+        ));
+    }
 }

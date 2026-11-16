@@ -22,6 +22,69 @@ use crate::overlay::OverlayHandle;
 /// Maximum number of input events the host applies per rolling second.
 pub const MAX_INPUT_EVENTS_PER_SECOND: usize = 120;
 
+/// LiveKit data topic of the reliable JSON input plane (`input-event.schema.json`).
+const INPUT_TOPIC: &str = "aa.input";
+
+/// LiveKit data topic of the lossy 12-byte pointer plane (`pointer-frame.md`).
+const POINTER_TOPIC: &str = "aa.pointer";
+
+/// How often a summary of the data-channel input is written to the log.
+const CHANNEL_INPUT_LOG_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Why one data-channel packet was not injected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChannelInputDrop {
+    /// The sender is not the granted controller (decisions D4).
+    Identity,
+    /// Unknown topic, or a payload that does not match its wire format.
+    Malformed,
+    /// The rolling [`MAX_INPUT_EVENTS_PER_SECOND`] budget is exhausted.
+    Throttled,
+    /// A lossy pointer frame older than the last one already applied.
+    Stale,
+    /// The input sink refused the event.
+    Rejected,
+}
+
+/// Counters for [`Host::apply_channel_input`].
+///
+/// The data plane is the only input path a client uses, and every rejection used to be a
+/// silent `continue`. These counters turn "the picture works but nothing answers" into a
+/// log line that says whether packets arrived and why they were dropped.
+#[derive(Debug, Default)]
+struct ChannelInputStats {
+    received: u64,
+    applied: u64,
+    identity_dropped: u64,
+    malformed_dropped: u64,
+    throttled_dropped: u64,
+    stale_dropped: u64,
+    rejected_dropped: u64,
+    first_packet_logged: bool,
+    identity_warned: bool,
+    last_summary: Option<std::time::Instant>,
+}
+
+impl ChannelInputStats {
+    fn record(&mut self, drop: ChannelInputDrop) {
+        match drop {
+            ChannelInputDrop::Identity => self.identity_dropped += 1,
+            ChannelInputDrop::Malformed => self.malformed_dropped += 1,
+            ChannelInputDrop::Throttled => self.throttled_dropped += 1,
+            ChannelInputDrop::Stale => self.stale_dropped += 1,
+            ChannelInputDrop::Rejected => self.rejected_dropped += 1,
+        }
+    }
+
+    fn dropped(&self) -> u64 {
+        self.identity_dropped
+            + self.malformed_dropped
+            + self.throttled_dropped
+            + self.stale_dropped
+            + self.rejected_dropped
+    }
+}
+
 /// Host lifecycle states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostState {
@@ -71,7 +134,9 @@ pub struct Host {
     /// Full controller identity (`viewer:pt_...`); input is rejected when the
     /// caller does not match (decisions D4).
     pub controller_identity: Option<String>,
-    /// Bumped on every `host.controlGrant`; host rejects input from a stale epoch.
+    /// Bumped on every `host.controlGrant`, so a caller can tell two grants apart. The
+    /// data plane cannot carry it (the wire format has no epoch field), so input is
+    /// authorised by identity alone; the epoch is reported, not enforced.
     pub control_epoch: u64,
     pressed_keys: BTreeSet<String>,
     pressed_buttons: BTreeSet<String>,
@@ -85,6 +150,10 @@ pub struct Host {
     last_frame: Arc<Mutex<Option<Frame>>>,
     /// Timestamps of recently applied input events, for the 120 events/s budget.
     input_window: std::collections::VecDeque<std::time::Instant>,
+    /// Highest lossy pointer sequence applied; older frames carry stale button state.
+    last_pointer_seq: Option<u32>,
+    /// Counters of the media data-channel input plane; see [`Host::apply_channel_input`].
+    channel_input: ChannelInputStats,
     #[cfg(windows)]
     overlay: Option<OverlayHandle>,
     sink: Box<dyn InputSink>,
@@ -117,6 +186,8 @@ impl Host {
             stream_thread: None,
             last_frame: Arc::new(Mutex::new(None)),
             input_window: std::collections::VecDeque::new(),
+            last_pointer_seq: None,
+            channel_input: ChannelInputStats::default(),
             #[cfg(windows)]
             overlay: None,
             sink,
@@ -143,6 +214,34 @@ impl Host {
             Method::HostInput => self.handle_input(id, params),
             Method::HostPing => response_ok(id, serde_json::json!({"pong": true})),
         }
+    }
+
+    /// Emits a `stats` event for the running session, if any.
+    ///
+    /// The host main loop calls this on a timer; without it the connector has no
+    /// source for `remote_desktop.stats.updated` and clients cannot show the
+    /// resolution/bitrate they are actually receiving.
+    pub fn emit_stats(&mut self) {
+        let Some(session_id) = self.session_id.clone() else {
+            return;
+        };
+        if self.state != HostState::Running {
+            return;
+        }
+        let stats = self
+            .publisher
+            .lock()
+            .map(|publisher| publisher.stats())
+            .unwrap_or_default();
+        log::debug!(
+            "emitting stats session={} fps={} bitrateKbps={} size={}x{}",
+            session_id,
+            stats.fps,
+            stats.bitrate_kbps,
+            stats.width,
+            stats.height
+        );
+        self.events.emit(stats_event(&session_id, &stats));
     }
 
     fn handle_info(&mut self, id: u64) -> HostControlMessage {
@@ -223,6 +322,8 @@ impl Host {
 
         // Panic-release: anything stuck from a previous session/crash is let go first.
         self.release_all_internal();
+        // The viewer's lossy pointer sequence starts over with each session.
+        self.last_pointer_seq = None;
 
         self.state = HostState::Starting;
         self.emit_state(&session_id, "starting");
@@ -249,19 +350,7 @@ impl Host {
                 self.display_id = resolved.id.clone();
             }
         }
-        let stream_width = display
-            .as_ref()
-            .map(|display| display.width.min(self.quality.max_width))
-            .unwrap_or(self.quality.max_width);
-        let stream_height = display
-            .as_ref()
-            .map(|display| {
-                (display.height as f64 * (stream_width as f64 / display.width.max(1) as f64))
-                    .round()
-                    .max(1.0) as u32
-            })
-            .unwrap_or(stream_width * 9 / 16)
-            .max(1);
+        let (stream_width, stream_height) = Self::stream_dimensions(display.as_ref(), self.quality);
         // Only one WGC/DXGI session per output is allowed in a process, so the
         // screenshot source stays closed whenever the stream will own the capture.
         let has_media = params
@@ -328,6 +417,7 @@ impl Host {
             self.capture.stop();
         }
         self.release_all_internal();
+        self.last_pointer_seq = None;
         self.state = HostState::Idle;
         self.session_id = None;
         if let Some(sid) = &session_id {
@@ -336,16 +426,55 @@ impl Host {
         response_ok(id, serde_json::json!({"stopped": true}))
     }
 
+    /// Capture size for [`quality`] on `display`; shared by start and runtime updates.
+    fn stream_dimensions(
+        display: Option<&crate::capture::DisplayInfo>,
+        quality: Quality,
+    ) -> (u32, u32) {
+        let width = display
+            .map(|display| display.width.min(quality.max_width))
+            .unwrap_or(quality.max_width);
+        let height = display
+            .map(|display| {
+                (display.height as f64 * (width as f64 / display.width.max(1) as f64))
+                    .round()
+                    .max(1.0) as u32
+            })
+            .unwrap_or(width * 9 / 16)
+            .max(1);
+        (width, height)
+    }
+
     fn handle_update_quality(&mut self, id: u64, params: &serde_json::Value) -> HostControlMessage {
         let Ok(patch) = serde_json::from_value::<QualityPatch>(params.clone()) else {
             return response_err(id, ERR_INVALID_PARAMS, "invalid quality params");
         };
         // Per contract: out-of-range values are clamped, not rejected.
-        let q = patch.apply(self.quality);
-        let changed = q != self.quality;
+        let previous = self.quality;
+        let q = patch.apply(previous);
+        let changed = q != previous;
         self.quality = q;
         if !changed {
             warn!("host.updateQuality produced no change (values already clamped/equal)");
+        }
+        if self.state == HostState::Running {
+            let displays = self.capture.displays();
+            let display = displays
+                .iter()
+                .find(|display| display.id == self.display_id);
+            let previous_size = Self::stream_dimensions(display, previous);
+            let (width, height) = Self::stream_dimensions(display, q);
+            // maxWidth is a capture-side setting: a new source is the only way to change
+            // the encoded size. Bitrate/fps go through the publisher, which re-publishes
+            // the track with the new encoder targets. Compare the actual capture size so
+            // raising maxWidth above the display width does not needlessly restart it.
+            if (width, height) != previous_size {
+                self.start_stream();
+            }
+            self.publisher
+                .lock()
+                .unwrap()
+                .update_quality(&q, width, height);
         }
         response_ok(id, serde_json::json!({"applied": true}))
     }
@@ -354,10 +483,30 @@ impl Host {
         let Some(identity) = params.get("identity").and_then(serde_json::Value::as_str) else {
             return response_err(id, ERR_INVALID_PARAMS, "params.identity is required");
         };
-        self.controller_identity = Some(identity.to_string());
+        let next = if identity.is_empty() {
+            None
+        } else {
+            Some(identity.to_string())
+        };
+        // A release revokes the SFU publish permission at the same time, so the
+        // client's final `release_all` can be dropped before it reaches this host.
+        // Release here as well: otherwise a mouse button held during a drag stays
+        // down on Windows and every later click is consumed as a drag.
+        if self.controller_identity != next {
+            self.release_all_internal();
+        }
+        self.controller_identity = next;
         self.control_epoch += 1;
+        // A new controller has its own pointer sequence starting at zero; the old
+        // controller's high-water mark must not make every new frame look stale.
+        self.last_pointer_seq = None;
         info!(
-            "control granted to {identity} (epoch {})",
+            "control granted to {} (epoch {})",
+            if identity.is_empty() {
+                "none"
+            } else {
+                identity
+            },
             self.control_epoch
         );
         response_ok(id, serde_json::json!({"applied": true}))
@@ -460,56 +609,218 @@ impl Host {
     /// The primary input plane is the LiveKit data channel: low latency and no Server
     /// round-trip. Only the granted controller may use it, which is checked against the
     /// sender's participant identity.
+    ///
+    /// Nothing here may fail silently: a viewer whose picture works but whose taps do
+    /// nothing has no other way to see that its packets arrived, from which identity, or
+    /// why they were dropped.
     pub fn apply_channel_input(&mut self) {
         let packets = match self.publisher.lock() {
             Ok(mut publisher) => publisher.take_data(),
             Err(_) => return,
         };
+        if packets.is_empty() {
+            return;
+        }
         for packet in packets {
-            if packet.topic == "aa.pointer" {
-                // Lossy high-rate pointer plane: absolute position, 12-byte frame.
-                if let Some(expected) = self.controller_identity.as_deref() {
-                    if !expected.is_empty() && packet.from != expected {
-                        continue;
+            self.channel_input.received += 1;
+            if !self.channel_input.first_packet_logged {
+                self.channel_input.first_packet_logged = true;
+                info!(
+                    "data-channel input arrived: topic={} from={} bytes={} controller={:?}",
+                    packet.topic,
+                    packet.from,
+                    packet.payload.len(),
+                    self.controller_identity,
+                );
+            }
+            match self.apply_channel_packet(&packet) {
+                Ok(()) => self.channel_input.applied += 1,
+                Err(reason) => self.channel_input.record(reason),
+            }
+        }
+        self.log_channel_input();
+    }
+
+    /// Applies one data-channel packet; `Err` names why it was not injected.
+    fn apply_channel_packet(
+        &mut self,
+        packet: &crate::publish::ReceivedData,
+    ) -> Result<(), ChannelInputDrop> {
+        // Identity gate: a packet from anyone but the granted controller never reaches
+        // the OS, whichever topic it claims (decisions D4). No controller means no
+        // input at all: without this, a pointer frame that was already in flight when
+        // control was released could re-press the left button on the host desktop.
+        let Some(expected) = self.controller_identity.as_deref() else {
+            return Err(ChannelInputDrop::Identity);
+        };
+        if expected.is_empty() || packet.from != expected {
+            if !self.channel_input.identity_warned {
+                self.channel_input.identity_warned = true;
+                warn!(
+                    "data-channel input dropped: sender={:?} is not the controller {:?}",
+                    packet.from, expected
+                );
+            }
+            return Err(ChannelInputDrop::Identity);
+        }
+        match packet.topic.as_str() {
+            POINTER_TOPIC => {
+                // Lossy high-rate pointer plane: absolute position plus the sender's
+                // button bitmask. The bitmask is applied here and not only on `aa.input`:
+                // the two planes have different reliability, so a move can overtake the
+                // reliable button event and the drag would start after the pointer moved.
+                let frame = crate::pointer::decode_pointer_frame(&packet.payload)
+                    .map_err(|_| ChannelInputDrop::Malformed)?;
+                // Button transitions are safety-critical: a release that exceeds the
+                // 120/s motion budget must still reach the OS or the left button sticks.
+                let button_transition = frame.flags & crate::pointer::FLAG_BUTTONS_CHANGED != 0;
+                if !button_transition && !self.allow_input_at(std::time::Instant::now()) {
+                    return Err(ChannelInputDrop::Throttled);
+                }
+                self.apply_pointer_frame(frame)
+            }
+            INPUT_TOPIC => {
+                let value = serde_json::from_slice::<serde_json::Value>(&packet.payload)
+                    .map_err(|_| ChannelInputDrop::Malformed)?;
+                let event =
+                    InputEvent::from_json(&value).map_err(|_| ChannelInputDrop::Malformed)?;
+                // A pause, lock screen or control handoff sends release_all on the
+                // reliable channel (without a pointer frame). Release the host's real
+                // pressed set here, otherwise a drag started before the pause stays
+                // stuck until the lease expires. This is outside the motion budget:
+                // after a fast drag the window is full precisely when the release matters.
+                if let InputEvent::ReleaseAll { reason } = &event {
+                    let (keys, buttons) = self.release_all_internal();
+                    info!(
+                        "client release_all: reason={reason} keys={} buttons={}",
+                        keys.len(),
+                        buttons.len()
+                    );
+                    return Ok(());
+                }
+                // Pointer button events are critical and rare; never let the motion
+                // budget eat a down/up. Moves, keys and wheel keep the normal budget.
+                let pointer_button = matches!(
+                    &event,
+                    InputEvent::Pointer {
+                        action: crate::input::PointerAction::Down | crate::input::PointerAction::Up,
+                        ..
+                    }
+                );
+                if !pointer_button && !self.allow_input_at(std::time::Instant::now()) {
+                    return Err(ChannelInputDrop::Throttled);
+                }
+                // The pointer plane may already have applied this press/release from its
+                // button bitmask; do not inject the same OS transition twice.
+                if let InputEvent::Pointer {
+                    action,
+                    button: Some(button),
+                    ..
+                } = &event
+                {
+                    let name = pointer_button_name(*button);
+                    let held = self.pressed_buttons.contains(name);
+                    if (*action == crate::input::PointerAction::Down && held)
+                        || (*action == crate::input::PointerAction::Up && !held)
+                    {
+                        return Ok(());
                     }
                 }
-                let Ok(frame) = crate::pointer::decode_pointer_frame(&packet.payload) else {
-                    continue;
-                };
-                if !self.allow_input_at(std::time::Instant::now()) {
-                    continue;
-                }
-                let event = InputEvent::Pointer {
-                    seq: frame.seq,
-                    action: crate::input::PointerAction::Move,
-                    x: frame.x as f64 / u16::MAX as f64,
-                    y: frame.y as f64 / u16::MAX as f64,
-                    button: None,
-                    display: 0,
-                };
-                let _ = self.sink.apply(&event);
-                continue;
+                self.track_pressed(&event);
+                self.sink
+                    .apply(&event)
+                    .map_err(|_| ChannelInputDrop::Rejected)
             }
-            if packet.topic != "aa.input" {
-                continue;
-            }
-            if let Some(expected) = self.controller_identity.as_deref() {
-                if !expected.is_empty() && packet.from != expected {
-                    continue;
-                }
-            }
-            let Ok(value) = serde_json::from_slice::<serde_json::Value>(&packet.payload) else {
-                continue;
-            };
-            if !self.allow_input_at(std::time::Instant::now()) {
-                continue;
-            }
-            let Ok(event) = InputEvent::from_json(&value) else {
-                continue;
-            };
-            self.track_pressed(&event);
-            let _ = self.sink.apply(&event);
+            _ => Err(ChannelInputDrop::Malformed),
         }
+    }
+
+    /// Applies one lossy pointer frame: newest position first, then any button transitions
+    /// encoded in its bitmask. The sender numbers frames, so a reordered/stale frame is
+    /// ignored instead of resurrecting an old button state.
+    fn apply_pointer_frame(
+        &mut self,
+        frame: crate::pointer::PointerFrame,
+    ) -> Result<(), ChannelInputDrop> {
+        use crate::input::{PointerAction, PointerButton};
+
+        if let Some(last) = self.last_pointer_seq {
+            let age = frame.seq.wrapping_sub(last);
+            if age == 0 || age > u32::MAX / 2 {
+                return Err(ChannelInputDrop::Stale);
+            }
+        }
+        self.last_pointer_seq = Some(frame.seq);
+        let x = frame.x as f64 / u16::MAX as f64;
+        let y = frame.y as f64 / u16::MAX as f64;
+        for (bit, button) in [
+            (crate::pointer::BUTTON_LEFT, PointerButton::Left),
+            (crate::pointer::BUTTON_RIGHT, PointerButton::Right),
+            (crate::pointer::BUTTON_MIDDLE, PointerButton::Middle),
+        ] {
+            let name = pointer_button_name(button);
+            let desired = frame.buttons & bit != 0;
+            let held = self.pressed_buttons.contains(name);
+            if desired == held {
+                continue;
+            }
+            let action = if desired {
+                PointerAction::Down
+            } else {
+                PointerAction::Up
+            };
+            let event = InputEvent::Pointer {
+                seq: frame.seq,
+                action,
+                x,
+                y,
+                button: Some(button),
+                display: 0,
+            };
+            self.sink
+                .apply(&event)
+                .map_err(|_| ChannelInputDrop::Rejected)?;
+            if desired {
+                self.pressed_buttons.insert(name.to_string());
+            } else {
+                self.pressed_buttons.remove(name);
+            }
+        }
+        let moved = InputEvent::Pointer {
+            seq: frame.seq,
+            action: PointerAction::Move,
+            x,
+            y,
+            button: None,
+            display: 0,
+        };
+        self.sink
+            .apply(&moved)
+            .map_err(|_| ChannelInputDrop::Rejected)
+    }
+
+    /// Writes the data-channel input counters at most once per
+    /// [`CHANNEL_INPUT_LOG_INTERVAL`], so a 60 fps drag does not flood the log.
+    fn log_channel_input(&mut self) {
+        let now = std::time::Instant::now();
+        if let Some(last) = self.channel_input.last_summary {
+            if now.duration_since(last) < CHANNEL_INPUT_LOG_INTERVAL {
+                return;
+            }
+        }
+        self.channel_input.last_summary = Some(now);
+        info!(
+            "data-channel input: received={} applied={} dropped={} (identity={}, malformed={}, throttled={}, stale={}, rejected={}) controller={:?}",
+            self.channel_input.received,
+            self.channel_input.applied,
+            self.channel_input.dropped(),
+            self.channel_input.identity_dropped,
+            self.channel_input.malformed_dropped,
+            self.channel_input.throttled_dropped,
+            self.channel_input.stale_dropped,
+            self.channel_input.rejected_dropped,
+            self.controller_identity,
+        );
     }
 
     /// Sliding one-second budget for applied input events (decisions §2.4).
@@ -631,6 +942,7 @@ impl Host {
         self.publisher.lock().unwrap().stop();
         self.capture.stop();
         self.release_all_internal();
+        self.last_pointer_seq = None;
         self.state = HostState::Idle;
         if let Some(sid) = session_id {
             self.emit_state(&sid, "stopped");
@@ -664,11 +976,7 @@ impl Host {
                 button: Some(b),
                 ..
             } => {
-                let name = match b {
-                    crate::input::PointerButton::Left => "left",
-                    crate::input::PointerButton::Right => "right",
-                    crate::input::PointerButton::Middle => "middle",
-                };
+                let name = pointer_button_name(*b);
                 match action {
                     PointerAction::Down => {
                         self.pressed_buttons.insert(name.to_string());
@@ -766,7 +1074,7 @@ fn event_seq(event: &InputEvent) -> Option<u32> {
         | InputEvent::Key { seq, .. }
         | InputEvent::Text { seq, .. }
         | InputEvent::Clipboard { seq, .. } => Some(*seq),
-        InputEvent::Ping { .. } => None,
+        InputEvent::Ping { .. } | InputEvent::ReleaseAll { .. } => None,
     }
 }
 
@@ -997,6 +1305,15 @@ fn build_gray_png(width: u32, height: u32, gray: &[u8]) -> Vec<u8> {
     chunk(&mut png, b"IDAT", &zlib);
     chunk(&mut png, b"IEND", &[]);
     png
+}
+
+/// Stable name of a pointer button in the host's pressed-button set and `release_all`.
+fn pointer_button_name(button: crate::input::PointerButton) -> &'static str {
+    match button {
+        crate::input::PointerButton::Left => "left",
+        crate::input::PointerButton::Right => "right",
+        crate::input::PointerButton::Middle => "middle",
+    }
 }
 
 /// Publisher stats exposed for the `stats` event.

@@ -43,6 +43,11 @@ pub enum InputEvent {
     Ping {
         at: u64,
     },
+    /// The client paused, lost focus or handed control over. The host releases every
+    /// key and button it is holding; `reason` is only used for diagnostics.
+    ReleaseAll {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,6 +98,10 @@ pub enum InputEventError {
     InvalidField(&'static str),
     #[error("input event must be a JSON object")]
     NotAnObject,
+    /// The OS input stack refused the event (for example UIPI, a locked desktop
+    /// or a session that is not the active input desktop).
+    #[error("the operating system rejected the input event")]
+    Rejected,
 }
 
 impl InputEvent {
@@ -256,6 +265,14 @@ impl InputEvent {
                     .ok_or(InputEventError::MissingField("at"))?;
                 Ok(InputEvent::Ping { at })
             }
+            "release_all" => {
+                let reason = obj
+                    .get("reason")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("manual")
+                    .to_string();
+                Ok(InputEvent::ReleaseAll { reason })
+            }
             _ => Err(InputEventError::InvalidField("t")),
         }
     }
@@ -348,6 +365,17 @@ mod tests {
         }))
         .unwrap();
         assert!(matches!(ev, InputEvent::Ping { at: 1762944000200 }));
+
+        let ev = InputEvent::from_json(&serde_json::json!({
+            "v": 1, "t": "release_all", "reason": "pagehide"
+        }))
+        .unwrap();
+        assert_eq!(
+            ev,
+            InputEvent::ReleaseAll {
+                reason: "pagehide".to_string()
+            }
+        );
     }
 
     #[test]

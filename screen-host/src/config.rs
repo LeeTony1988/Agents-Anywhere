@@ -1,22 +1,32 @@
 //! Host configuration from environment variables and CLI flags.
 //!
 //! Defaults follow `docs/remote-desktop-decisions.md` D5:
-//! maxFps 30, maxBitrateKbps 4000, VP8 software encoder, display "0".
+//! maxFps 30, auto bitrate, VP8 software encoder, display "0".
 
 use serde::{Deserialize, Serialize};
 
 /// Quality bounds from decisions D5 / D6 (`remoteDesktopMaxFps` 5–60,
-/// `remoteDesktopMaxBitrateKbps` 500–20000).
+/// `remoteDesktopMaxBitrateKbps` 0 or 500–100000; 0 means automatic).
 pub const MIN_FPS: u32 = 5;
 pub const MAX_FPS: u32 = 60;
 pub const MIN_BITRATE_KBPS: u32 = 500;
-pub const MAX_BITRATE_KBPS: u32 = 20000;
+pub const MAX_BITRATE_KBPS: u32 = 100_000;
 pub const MIN_WIDTH: u32 = 320;
 pub const MAX_WIDTH: u32 = 3840;
 
 pub const DEFAULT_MAX_FPS: u32 = 30;
-pub const DEFAULT_MAX_BITRATE_KBPS: u32 = 4000;
+/// `0` asks the host to derive the encoder ceiling from the actual capture size
+/// and frame rate; it is not a 0 kbps cap.
+pub const DEFAULT_MAX_BITRATE_KBPS: u32 = 0;
 pub const DEFAULT_MAX_WIDTH: u32 = 1920;
+
+/// Automatic bitrate budget: 0.15 bit per pixel per frame (3/20), about
+/// 9.3 Mbps for 1080p30 and 37 Mbps for 4K30. Screen content usually encodes
+/// below this; WebRTC bandwidth estimation remains the real limiter.
+const AUTO_BITRATE_BITS_PER_PIXEL_NUM: u64 = 3;
+const AUTO_BITRATE_BITS_PER_PIXEL_DEN: u64 = 20;
+const MIN_AUTO_BITRATE_KBPS: u64 = 2_000;
+const MAX_AUTO_BITRATE_KBPS: u64 = 100_000;
 pub const DEFAULT_DISPLAY_ID: &str = "0";
 pub const DEFAULT_ENCODER: &str = "libwebrtc-sw";
 
@@ -43,11 +53,34 @@ impl Quality {
     /// Clamp out-of-range values into the supported window (decisions D5).
     pub fn clamped(mut self) -> Self {
         self.max_fps = self.max_fps.clamp(MIN_FPS, MAX_FPS);
-        self.max_bitrate_kbps = self
-            .max_bitrate_kbps
-            .clamp(MIN_BITRATE_KBPS, MAX_BITRATE_KBPS);
+        self.max_bitrate_kbps = if self.max_bitrate_kbps == 0 {
+            0
+        } else {
+            self.max_bitrate_kbps
+                .clamp(MIN_BITRATE_KBPS, MAX_BITRATE_KBPS)
+        };
         self.max_width = self.max_width.clamp(MIN_WIDTH, MAX_WIDTH);
         self
+    }
+
+    /// Encoder ceiling for a capture of `width`×`height` at `max_fps`.
+    ///
+    /// An explicit `maxBitrateKbps` still wins (backward compatibility). With the
+    /// default `0` the ceiling scales with resolution and frame rate, so a larger
+    /// desktop or a higher frame rate is not silently held at the old 20 Mbps
+    /// wall. This is a ceiling for libwebrtc, not a target: the actual send rate
+    /// is whatever the bandwidth estimator and the content allow.
+    pub fn effective_bitrate_kbps(&self, width: u32, height: u32) -> u32 {
+        if self.max_bitrate_kbps > 0 {
+            return self.max_bitrate_kbps;
+        }
+        let pixels = u64::from(width.max(2)) * u64::from(height.max(2));
+        let fps = u64::from(self.max_fps.max(1));
+        let kbps = pixels
+            .saturating_mul(fps)
+            .saturating_mul(AUTO_BITRATE_BITS_PER_PIXEL_NUM)
+            / (AUTO_BITRATE_BITS_PER_PIXEL_DEN * 1000);
+        kbps.clamp(MIN_AUTO_BITRATE_KBPS, MAX_AUTO_BITRATE_KBPS) as u32
     }
 }
 
@@ -207,7 +240,7 @@ mod tests {
         let cfg = HostConfig::default();
         assert_eq!(cfg.protocol_version, 1);
         assert_eq!(cfg.quality.max_fps, 30);
-        assert_eq!(cfg.quality.max_bitrate_kbps, 4000);
+        assert_eq!(cfg.quality.max_bitrate_kbps, 0);
         assert_eq!(cfg.quality.max_width, 1920);
         assert_eq!(cfg.display, "0");
         assert_eq!(cfg.encoder, "libwebrtc-sw");
@@ -227,13 +260,45 @@ mod tests {
 
         let q = Quality {
             max_fps: 1,
-            max_bitrate_kbps: 100_000,
+            max_bitrate_kbps: 1_000_000,
             max_width: 100,
         }
         .clamped();
         assert_eq!(q.max_fps, 5);
-        assert_eq!(q.max_bitrate_kbps, 20000);
+        assert_eq!(q.max_bitrate_kbps, MAX_BITRATE_KBPS);
         assert_eq!(q.max_width, 320);
+
+        let auto = Quality {
+            max_fps: 30,
+            max_bitrate_kbps: 0,
+            max_width: 1920,
+        }
+        .clamped();
+        assert_eq!(auto.max_bitrate_kbps, 0);
+    }
+
+    #[test]
+    fn auto_bitrate_scales_with_resolution_and_fps() {
+        let q = Quality {
+            max_fps: 30,
+            max_bitrate_kbps: 0,
+            max_width: 1920,
+        };
+        // 1920×1080×30×0.15 bit/pixel ≈ 9.3 Mbps.
+        assert_eq!(q.effective_bitrate_kbps(1920, 1080), 9_331);
+        // A larger desktop gets a larger encoder budget instead of the old fixed
+        // 20 Mbps wall: 2560×1440@30 ≈ 16.6 Mbps.
+        assert_eq!(q.effective_bitrate_kbps(2560, 1440), 16_588);
+        assert_eq!(q.effective_bitrate_kbps(3840, 2160), 37_324);
+
+        let fast = Quality { max_fps: 60, ..q };
+        assert_eq!(fast.effective_bitrate_kbps(1920, 1080), 18_662);
+
+        let explicit = Quality {
+            max_bitrate_kbps: 4_000,
+            ..q
+        };
+        assert_eq!(explicit.effective_bitrate_kbps(3840, 2160), 4_000);
     }
 
     #[test]

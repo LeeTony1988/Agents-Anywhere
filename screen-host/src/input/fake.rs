@@ -59,6 +59,9 @@ impl InputSink for FakeInputSink {
             | InputEvent::Wheel { .. }
             | InputEvent::Clipboard { .. }
             | InputEvent::Ping { .. } => {}
+            InputEvent::ReleaseAll { .. } => {
+                self.release_all();
+            }
         }
         self.events.push(event.clone());
         Ok(())

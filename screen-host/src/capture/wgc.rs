@@ -281,33 +281,118 @@ fn bgra_to_i420(
     let mut y_plane = vec![0u8; dw * dh];
     let mut u_plane = vec![0u8; (dw / 2) * (dh / 2)];
     let mut v_plane = vec![0u8; (dw / 2) * (dh / 2)];
+
+    // Luma: area-average every destination pixel. Nearest-neighbour sampling (the old
+    // implementation) is cheap but aliases small text and thin lines when the desktop
+    // is downscaled; the area filter keeps much more of the glyph shape.
     for dy in 0..dh {
-        let sy = (dy * sh / dh).min(sh - 1);
+        let sy0 = dy * sh / dh;
+        let sy1 = ((dy + 1) * sh / dh).max(sy0 + 1).min(sh);
         for dx in 0..dw {
-            let sx = (dx * sw / dw).min(sw - 1);
-            let offset = (sy * sw + sx) * 4;
-            if offset + 3 >= src.len() {
-                continue;
-            }
-            let b = src[offset] as f32;
-            let g = src[offset + 1] as f32;
-            let r = src[offset + 2] as f32;
+            let sx0 = dx * sw / dw;
+            let sx1 = ((dx + 1) * sw / dw).max(sx0 + 1).min(sw);
+            let (r, g, b) = average_bgra_rect(src, sw, sx0, sy0, sx1, sy1);
             let y = 0.299 * r + 0.587 * g + 0.114 * b;
             y_plane[dy * dw + dx] = y.clamp(0.0, 255.0) as u8;
-            if dx % 2 == 0 && dy % 2 == 0 {
-                let u = -0.168_736 * r - 0.331_264 * g + 0.5 * b + 128.0;
-                let v = 0.5 * r - 0.418_688 * g - 0.081_312 * b + 128.0;
-                let index = (dy / 2) * (dw / 2) + dx / 2;
-                u_plane[index] = u.clamp(0.0, 255.0) as u8;
-                v_plane[index] = v.clamp(0.0, 255.0) as u8;
-            }
         }
     }
+
+    // Chroma: one sample per 2x2 destination block, averaged over the full source area
+    // covered by that block. This avoids the old top-left chroma sample and its colour
+    // fringes on ClearType text.
+    for by in 0..(dh / 2) {
+        let sy0 = by * 2 * sh / dh;
+        let sy1 = ((by * 2 + 2) * sh / dh).max(sy0 + 1).min(sh);
+        for bx in 0..(dw / 2) {
+            let sx0 = bx * 2 * sw / dw;
+            let sx1 = ((bx * 2 + 2) * sw / dw).max(sx0 + 1).min(sw);
+            let (r, g, b) = average_bgra_rect(src, sw, sx0, sy0, sx1, sy1);
+            let index = by * (dw / 2) + bx;
+            u_plane[index] =
+                (-0.168_736 * r - 0.331_264 * g + 0.5 * b + 128.0).clamp(0.0, 255.0) as u8;
+            v_plane[index] =
+                (0.5 * r - 0.418_688 * g - 0.081_312 * b + 128.0).clamp(0.0, 255.0) as u8;
+        }
+    }
+
     let mut out = Vec::with_capacity(y_plane.len() + u_plane.len() + v_plane.len());
     out.extend_from_slice(&y_plane);
     out.extend_from_slice(&u_plane);
     out.extend_from_slice(&v_plane);
     out
+}
+
+/// Average BGRA colours in the half-open source rectangle `[x0,x1) × [y0,y1)`.
+fn average_bgra_rect(
+    src: &[u8],
+    src_width: usize,
+    x0: usize,
+    y0: usize,
+    x1: usize,
+    y1: usize,
+) -> (f32, f32, f32) {
+    let mut r = 0.0f32;
+    let mut g = 0.0f32;
+    let mut b = 0.0f32;
+    let mut count = 0u32;
+    for sy in y0..y1 {
+        let row = sy * src_width;
+        for sx in x0..x1 {
+            let offset = (row + sx) * 4;
+            if offset + 3 >= src.len() {
+                continue;
+            }
+            b += src[offset] as f32;
+            g += src[offset + 1] as f32;
+            r += src[offset + 2] as f32;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        (0.0, 0.0, 0.0)
+    } else {
+        let divisor = count as f32;
+        (r / divisor, g / divisor, b / divisor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bgra(width: usize, height: usize, channels: [u8; 4]) -> Vec<u8> {
+        channels
+            .iter()
+            .copied()
+            .cycle()
+            .take(width * height * 4)
+            .collect()
+    }
+
+    #[test]
+    fn downscale_averages_source_blocks_instead_of_sampling_one_pixel() {
+        // 4x4: left two columns white, right two columns black; 2x2 output.
+        let mut src = Vec::with_capacity(4 * 4 * 4);
+        for _y in 0..4 {
+            for x in 0..4 {
+                let value = if x < 2 { 255 } else { 0 };
+                src.extend_from_slice(&[value, value, value, 255]);
+            }
+        }
+
+        let i420 = bgra_to_i420(&src, 4, 4, 2, 2);
+
+        // Luma plane: the left destination column is white, the right is black.
+        assert_eq!(&i420[..4], &[255, 0, 255, 0]);
+    }
+
+    #[test]
+    fn one_to_one_keeps_every_pixel_and_neutral_chroma() {
+        let src = bgra(2, 2, [255, 255, 255, 255]);
+        let i420 = bgra_to_i420(&src, 2, 2, 2, 2);
+        assert_eq!(&i420[..4], &[255, 255, 255, 255]);
+        assert_eq!(&i420[4..], &[128, 128]);
+    }
 }
 
 fn now_rfc3339() -> String {

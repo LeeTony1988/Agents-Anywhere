@@ -8,7 +8,7 @@
 
 use std::io::{BufRead, Write};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use aa_screen_host::capture::{self, CaptureSource};
 use aa_screen_host::config::HostConfig;
@@ -79,7 +79,11 @@ fn hello_frame(config: &HostConfig) -> HostControlMessage {
             "wgc": cfg!(feature = "wgc"),
             "input": cfg!(windows),
             "publish": if cfg!(feature = "livekit") { vec!["livekit"] } else { vec!["stub"] },
-            "codecs": ["vp8"]
+            "codecs": ["vp8"],
+            // A low-integrity host cannot pass the Windows UIPI boundary to reach a
+            // normal user's windows; the Connector refuses it instead of showing a
+            // picture that can never be controlled.
+            "integrity": aa_screen_host::integrity::current_process_integrity(),
         }),
     })
 }
@@ -115,6 +119,10 @@ fn main() {
         .format_timestamp_millis()
         .init();
 
+    log::info!(
+        "process integrity: {}",
+        aa_screen_host::integrity::current_process_integrity()
+    );
     let mut config = HostConfig::from_env();
     let mut once = false;
     let args = std::env::args().skip(1);
@@ -144,7 +152,11 @@ fn main() {
         input::new_input_sink(),
         Box::new(StdioEventSink::new()),
     );
-    let mut app = App { host, once };
+    let mut app = App {
+        host,
+        once,
+        last_stats: Instant::now(),
+    };
 
     // Greet immediately so the connector learns the wire is alive.
     let hello = hello_frame(&config);
@@ -156,7 +168,17 @@ fn main() {
 struct App {
     host: Host,
     once: bool,
+    /// Writes a `stats` event at most once per [`STATS_INTERVAL`].
+    last_stats: Instant,
 }
+
+/// How often the host reports encoder/RTP stats to the Connector.
+const STATS_INTERVAL: Duration = Duration::from_secs(2);
+
+/// How often the host drains the media data-channel input queue while idle on stdin.
+/// The old 200 ms timeout added up to 200 ms to every pointer move; 8 ms keeps the
+/// pointer plane at roughly the same cadence as the 120 Hz client throttle.
+const INPUT_POLL_INTERVAL: Duration = Duration::from_millis(8);
 
 impl App {
     fn run(&mut self) -> i32 {
@@ -176,7 +198,7 @@ impl App {
             .ok();
 
         loop {
-            let line = match receiver.recv_timeout(Duration::from_millis(200)) {
+            let line = match receiver.recv_timeout(INPUT_POLL_INTERVAL) {
                 Ok(Ok(line)) => line,
                 Ok(Err(error)) => {
                     log::error!("stdin read error: {error}");
@@ -187,8 +209,11 @@ impl App {
                         log::info!("local sharing overlay requested stop");
                         break;
                     }
-                    // Idle window: apply any input that arrived on the data channel.
+                    // Idle window: apply any input that arrived on the data channel
+                    // and report the publisher stats the client needs for the quality
+                    // overlay.
                     self.host.apply_channel_input();
+                    self.emit_stats_if_due();
                     continue;
                 }
                 Err(RecvTimeoutError::Disconnected) => break,
@@ -197,6 +222,7 @@ impl App {
                 return code;
             }
             self.host.apply_channel_input();
+            self.emit_stats_if_due();
             if self.once && answered_any {
                 break;
             }
@@ -205,6 +231,15 @@ impl App {
         // EOF (or local overlay stop): release everything and exit cleanly.
         self.host.shutdown();
         0
+    }
+
+    /// Emits a stats event at most once per [`STATS_INTERVAL`].
+    fn emit_stats_if_due(&mut self) {
+        if self.last_stats.elapsed() < STATS_INTERVAL {
+            return;
+        }
+        self.host.emit_stats();
+        self.last_stats = Instant::now();
     }
 
     /// Handle one NDJSON line; returns an exit code only on a terminal frame.

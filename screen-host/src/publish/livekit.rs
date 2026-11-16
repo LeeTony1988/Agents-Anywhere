@@ -17,8 +17,9 @@ use std::thread::JoinHandle;
 use log::{info, warn};
 use tokio::sync::mpsc::error::TrySendError;
 
-use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
+use livekit::options::{DegradationPreference, TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::prelude::*;
+use livekit::webrtc::stats::RtcStats;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::VideoResolution;
@@ -29,8 +30,13 @@ use crate::config::Quality;
 
 enum Command {
     Frame(Frame),
-    /// Re-publish the video track so the encoder emits a fresh keyframe.
-    Refresh,
+    /// Re-publish the video track. `quality` is `Some` for an explicit quality change;
+    /// `None` only forces a fresh keyframe.
+    Republish {
+        quality: Option<Quality>,
+        width: u32,
+        height: u32,
+    },
     Stop,
 }
 
@@ -39,6 +45,8 @@ pub struct LiveKitPublisher {
     sender: Option<tokio::sync::mpsc::Sender<Command>>,
     worker: Option<JoinHandle<()>>,
     stats: Arc<Mutex<Stats>>,
+    /// Capture size of the running publication, used by a keyframe re-publish.
+    current_size: (u32, u32),
     started: bool,
 }
 
@@ -51,6 +59,7 @@ impl LiveKitPublisher {
             sender: None,
             worker: None,
             stats: Arc::new(Mutex::new(Stats::default())),
+            current_size: (0, 0),
             started: false,
         }
     }
@@ -85,8 +94,9 @@ impl Publisher for LiveKitPublisher {
         let (sender, mut receiver) = tokio::sync::mpsc::channel::<Command>(2);
         let stats = Arc::clone(&self.stats);
         let grant = media.clone();
-        let quality = *quality;
+        let mut quality = *quality;
         let session = session_id.to_string();
+        self.current_size = (width.max(2), height.max(2));
         self.worker = Some(std::thread::spawn(move || {
             let runtime = match tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
@@ -132,7 +142,7 @@ impl Publisher for LiveKitPublisher {
                         }
                     }
                 });
-                let resolution = VideoResolution {
+                let mut resolution = VideoResolution {
                     width: width.max(2),
                     height: height.max(2),
                 };
@@ -141,14 +151,31 @@ impl Publisher for LiveKitPublisher {
                     "screen",
                     livekit::webrtc::video_source::RtcVideoSource::Native(source.clone()),
                 );
-                let options = TrackPublishOptions {
+                // Keep a handle for outbound RTP stats even after the track is moved
+                // into the publication (and replaced when the track is re-published).
+                let mut stats_track = track.clone();
+                let mut last_bytes: Option<(u64, std::time::Instant)> = None;
+                let initial_bitrate_kbps = quality.effective_bitrate_kbps(width, height);
+                info!(
+                    "LiveKit encoding {}x{} max_fps={} max_bitrate={}kbps auto={}",
+                    width,
+                    height,
+                    quality.max_fps,
+                    initial_bitrate_kbps,
+                    quality.max_bitrate_kbps == 0
+                );
+                let mut options = TrackPublishOptions {
                     source: TrackSource::Screenshare,
                     video_codec: VideoCodec::VP8,
                     simulcast: false,
                     video_encoding: Some(VideoEncoding {
-                        max_bitrate: (quality.max_bitrate_kbps as u64) * 1000,
+                        max_bitrate: (initial_bitrate_kbps as u64) * 1000,
                         max_framerate: quality.max_fps as f64,
                     }),
+                    // Text must stay readable: under congestion drop frames, never
+                    // silently downscale the desktop. Screenshare already defaults to
+                    // this in LiveKit, but make the intent explicit.
+                    degradation_preference: Some(DegradationPreference::MaintainResolution),
                     ..Default::default()
                 };
                 let mut publication = match room
@@ -168,36 +195,66 @@ impl Publisher for LiveKitPublisher {
                 let mut last_report = std::time::Instant::now();
                 // The Rust SDK exposes no keyframe request, and the encoder only
                 // emits one when a track starts. A viewer that joins later asks the
-                // Server for a keyframe, which lands here as `Refresh`; re-publishing
+                // Server for a keyframe, which lands here as a re-publish; re-publishing
                 // is the only way to satisfy it with this SDK version.
                 while let Some(command) = receiver.recv().await {
-                    if matches!(command, Command::Refresh) {
-                        // Unpublish + publish is the only way to force a keyframe
-                        // with this SDK version: a fresh publication starts with one.
-                        let sid = publication.sid();
-                        if let Err(error) = room.local_participant().unpublish_track(&sid).await {
-                            warn!("LiveKit unpublish failed session={session}: {error}");
-                        }
-                        // A source can back a single publication, so the refresh
-                        // installs a new one; capture keeps targeting `source`.
-                        source = NativeVideoSource::new(resolution.clone(), true);
-                        let track = LocalVideoTrack::create_video_track(
-                            "screen",
-                            livekit::webrtc::video_source::RtcVideoSource::Native(source.clone()),
-                        );
-                        match room
-                            .local_participant()
-                            .publish_track(LocalTrack::Video(track), options.clone())
-                            .await
-                        {
-                            Ok(refreshed) => publication = refreshed,
-                            Err(error) => {
-                                warn!("LiveKit re-publish failed session={session}: {error}");
+                    match command {
+                        Command::Republish {
+                            quality: next,
+                            width,
+                            height,
+                        } => {
+                            // Unpublish + publish is the only way to force a keyframe or
+                            // change the encoder target with this SDK version: a fresh
+                            // publication starts with a keyframe.
+                            if let Some(next) = next {
+                                quality = next;
+                                let bitrate_kbps =
+                                    quality.effective_bitrate_kbps(width, height);
+                                info!(
+                                    "LiveKit encoding updated {}x{} max_fps={} max_bitrate={}kbps auto={}",
+                                    width,
+                                    height,
+                                    quality.max_fps,
+                                    bitrate_kbps,
+                                    quality.max_bitrate_kbps == 0
+                                );
+                                options.video_encoding = Some(VideoEncoding {
+                                    max_bitrate: (bitrate_kbps as u64) * 1000,
+                                    max_framerate: quality.max_fps as f64,
+                                });
+                            }
+                            resolution = VideoResolution {
+                                width: width.max(2),
+                                height: height.max(2),
+                            };
+                            let sid = publication.sid();
+                            if let Err(error) = room.local_participant().unpublish_track(&sid).await
+                            {
+                                warn!("LiveKit unpublish failed session={session}: {error}");
+                            }
+                            // A source can back a single publication, so the refresh
+                            // installs a new one; capture keeps targeting `source`.
+                            source = NativeVideoSource::new(resolution.clone(), true);
+                            let track = LocalVideoTrack::create_video_track(
+                                "screen",
+                                livekit::webrtc::video_source::RtcVideoSource::Native(
+                                    source.clone(),
+                                ),
+                            );
+                            stats_track = track.clone();
+                            last_bytes = None;
+                            match room
+                                .local_participant()
+                                .publish_track(LocalTrack::Video(track), options.clone())
+                                .await
+                            {
+                                Ok(refreshed) => publication = refreshed,
+                                Err(error) => {
+                                    warn!("LiveKit re-publish failed session={session}: {error}");
+                                }
                             }
                         }
-                        continue;
-                    }
-                    match command {
                         Command::Frame(frame) => {
                             let mut buffer = I420Buffer::with_strides(
                                 frame.width,
@@ -220,19 +277,67 @@ impl Publisher for LiveKitPublisher {
                             frame_count += 1;
                             let elapsed = last_report.elapsed().as_secs_f64();
                             if elapsed >= 1.0 {
+                                // WebRTC's outbound stats are the only truthful source
+                                // for the bitrate users see; the frame counter alone
+                                // says nothing about how many bits the encoder sent.
+                                let measured = stats_track.get_stats().await;
+                                let outbound = measured.ok().and_then(|samples| {
+                                    samples.into_iter().find_map(|sample| match sample {
+                                        RtcStats::OutboundRtp(out)
+                                            if out.stream.kind == "video"
+                                                && out.outbound.active =>
+                                        {
+                                            Some(out)
+                                        }
+                                        _ => None,
+                                    })
+                                });
                                 if let Ok(mut stats) = stats.lock() {
-                                    stats.fps = frame_count as f64 / elapsed;
-                                    stats.width = frame.width;
-                                    stats.height = frame.height;
+                                    stats.fps = outbound
+                                        .as_ref()
+                                        .map(|out| out.outbound.frames_per_second)
+                                        .filter(|fps| *fps > 0.0)
+                                        .unwrap_or(frame_count as f64 / elapsed);
+                                    stats.width = outbound
+                                        .as_ref()
+                                        .map(|out| out.outbound.frame_width)
+                                        .filter(|width| *width > 0)
+                                        .unwrap_or(frame.width);
+                                    stats.height = outbound
+                                        .as_ref()
+                                        .map(|out| out.outbound.frame_height)
+                                        .filter(|height| *height > 0)
+                                        .unwrap_or(frame.height);
                                     stats.codec = "vp8".to_string();
-                                    stats.encoder = "libwebrtc-sw".to_string();
+                                    stats.encoder = outbound
+                                        .as_ref()
+                                        .map(|out| out.outbound.encoder_implementation.clone())
+                                        .filter(|encoder| !encoder.is_empty())
+                                        .unwrap_or_else(|| "libwebrtc-sw".to_string());
+                                    if let Some(out) = outbound.as_ref() {
+                                        let now = std::time::Instant::now();
+                                        let bytes = out.sent.bytes_sent;
+                                        if let Some((previous_bytes, previous_at)) = last_bytes {
+                                            let seconds =
+                                                now.duration_since(previous_at).as_secs_f64();
+                                            if seconds > 0.0 && bytes >= previous_bytes {
+                                                stats.bitrate_kbps =
+                                                    (bytes - previous_bytes) as f64 * 8.0
+                                                        / seconds
+                                                        / 1000.0;
+                                            }
+                                        } else if out.outbound.target_bitrate > 0.0 {
+                                            stats.bitrate_kbps =
+                                                out.outbound.target_bitrate / 1000.0;
+                                        }
+                                        last_bytes = Some((bytes, now));
+                                    }
                                 }
                                 frame_count = 0;
                                 last_report = std::time::Instant::now();
                             }
                         }
                         Command::Stop => break,
-                        Command::Refresh => {}
                     }
                 }
                 let _ = room.close().await;
@@ -253,6 +358,7 @@ impl Publisher for LiveKitPublisher {
 
     fn stop(&mut self) {
         self.started = false;
+        self.current_size = (0, 0);
         self.stop_worker();
     }
 
@@ -272,7 +378,29 @@ impl Publisher for LiveKitPublisher {
         let Some(sender) = self.sender.as_ref() else {
             return false;
         };
-        matches!(sender.try_send(Command::Refresh), Ok(()))
+        let (width, height) = self.current_size;
+        matches!(
+            sender.try_send(Command::Republish {
+                quality: None,
+                width: width.max(2),
+                height: height.max(2),
+            }),
+            Ok(())
+        )
+    }
+
+    fn update_quality(&mut self, quality: &Quality, width: u32, height: u32) {
+        self.current_size = (width.max(2), height.max(2));
+        let Some(sender) = self.sender.as_ref() else {
+            return;
+        };
+        if let Err(error) = sender.blocking_send(Command::Republish {
+            quality: Some(*quality),
+            width: self.current_size.0,
+            height: self.current_size.1,
+        }) {
+            warn!("LiveKit quality update dropped: {error}");
+        }
     }
 
     fn stats(&self) -> Stats {
