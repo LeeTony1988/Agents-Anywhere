@@ -108,11 +108,11 @@ def test_new_participant_id_shape() -> None:
 def test_clamp_quality_defaults() -> None:
     assert clamp_quality(None, ConnectorDeviceSettings()) == {
         "maxFps": 30,
-        "maxBitrateKbps": 4000,
-        "maxWidth": 1600,
+        "maxBitrateKbps": 0,
+        "maxWidth": 1920,
         "preferCodec": "vp8",
     }
-    assert clamp_quality({}, ConnectorDeviceSettings())["maxWidth"] == 1600
+    assert clamp_quality({}, ConnectorDeviceSettings())["maxWidth"] == 1920
     # Non-dict requests are ignored entirely.
     assert clamp_quality("bad", ConnectorDeviceSettings())["maxFps"] == 30
 
@@ -163,7 +163,7 @@ def test_clamp_quality_pins_codec_and_ignores_junk_values() -> None:
     )
     assert clamped["preferCodec"] == "vp8"
     assert clamped["maxFps"] == 30
-    assert clamped["maxBitrateKbps"] == 4000
+    assert clamped["maxBitrateKbps"] == 0
 
 
 def test_participants_with_new_and_touch() -> None:
@@ -226,10 +226,10 @@ def test_device_settings_drop_out_of_range_ints_to_defaults() -> None:
         ({"remoteDesktopMaxFps": 4}, 30),
         ({"remoteDesktopMaxFps": 5}, 5),
         ({"remoteDesktopMaxFps": 60}, 60),
-        ({"remoteDesktopMaxBitrateKbps": 20_001}, 4000),
-        ({"remoteDesktopMaxBitrateKbps": 499}, 4000),
-        ({"remoteDesktopMaxBitrateKbps": 500}, 500),
-        ({"remoteDesktopMaxBitrateKbps": 20_000}, 20_000),
+        ({"remoteDesktopMaxBitrateKbps": 100_001}, 0),
+        ({"remoteDesktopMaxBitrateKbps": -1}, 0),
+        ({"remoteDesktopMaxBitrateKbps": 0}, 0),
+        ({"remoteDesktopMaxBitrateKbps": 100_000}, 100_000),
     ):
         settings = device_settings_from_stored(stored)
         name = next(iter(stored))
@@ -241,7 +241,7 @@ def test_device_settings_never_confuse_bool_and_int() -> None:
     assert device_settings_from_stored({"remoteDesktopMaxFps": True}).remoteDesktopMaxFps == 30
     assert (
         device_settings_from_stored({"remoteDesktopMaxBitrateKbps": False}).remoteDesktopMaxBitrateKbps
-        == 4000
+        == 0
     )
     # An int is not a valid boolean setting: it falls back to the default.
     assert device_settings_from_stored({"confirmQuitOnShutdown": 1}).confirmQuitOnShutdown is False
@@ -269,9 +269,9 @@ def test_device_settings_patch_rejects_out_of_range_ints() -> None:
     with pytest.raises(ValueError):
         ConnectorDeviceSettingsPatch.model_validate({"remoteDesktopMaxFps": 61})
     with pytest.raises(ValueError):
-        ConnectorDeviceSettingsPatch.model_validate({"remoteDesktopMaxBitrateKbps": 499})
+        ConnectorDeviceSettingsPatch.model_validate({"remoteDesktopMaxBitrateKbps": -1})
     with pytest.raises(ValueError):
-        ConnectorDeviceSettingsPatch.model_validate({"remoteDesktopMaxBitrateKbps": 20_001})
+        ConnectorDeviceSettingsPatch.model_validate({"remoteDesktopMaxBitrateKbps": 100_001})
 
 
 def test_session_from_row_parses_json_columns() -> None:

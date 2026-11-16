@@ -5,5 +5,5 @@
   "remoteDesktopAllowUnattended": false,
   "remoteDesktopClipboard": false,
   "remoteDesktopMaxFps": 30,
-  "remoteDesktopMaxBitrateKbps": 4000
+  "remoteDesktopMaxBitrateKbps": 0
 }

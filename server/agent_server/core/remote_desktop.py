@@ -83,11 +83,14 @@ QUALITY_MIN_FPS = 5
 QUALITY_MAX_FPS = 60
 QUALITY_DEFAULT_FPS = 30
 QUALITY_MIN_BITRATE_KBPS = 500
-QUALITY_MAX_BITRATE_KBPS = 20_000
-QUALITY_DEFAULT_BITRATE_KBPS = 4000
+# 0 means automatic: the host derives the encoder ceiling from the actual
+# capture resolution and frame rate. Positive values remain explicit caps for
+# old clients and for deployments that need a hard ceiling.
+QUALITY_MAX_BITRATE_KBPS = 100_000
+QUALITY_DEFAULT_BITRATE_KBPS = 0
 QUALITY_MIN_WIDTH = 320
 QUALITY_MAX_WIDTH = 3840
-QUALITY_DEFAULT_WIDTH = 1600
+QUALITY_DEFAULT_WIDTH = 1920
 QUALITY_PREFERRED_CODEC = "vp8"
 
 
@@ -490,16 +493,30 @@ def _clamp_int(value: Any, low: int, high: int, default: int) -> int:
     return max(low, min(high, parsed))
 
 
+def _clamp_bitrate(value: Any) -> int:
+    """`0` = automatic; positive values are explicit caps of at least 500 kbps."""
+    if isinstance(value, bool):
+        return 0
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    if parsed <= 0:
+        return 0
+    return max(QUALITY_MIN_BITRATE_KBPS, min(QUALITY_MAX_BITRATE_KBPS, parsed))
+
+
 def clamp_quality(
     requested: Mapping[str, Any] | None,
     settings: Any,
 ) -> dict[str, Any]:
     """Clamp a requested quality against the device settings caps.
 
-    ``maxFps``/``maxBitrateKbps`` are clamped to their protocol ranges and then
-    capped by the device settings (``remoteDesktopMaxFps``/``…BitrateKbps``);
-    ``maxWidth`` clamps to 320–3840 (default 1600); ``preferCodec`` is always
-    ``vp8`` in contract 1.0.
+    ``maxFps`` is clamped to its protocol range and then capped by the device
+    setting; ``maxBitrateKbps`` uses ``0`` for automatic (resolution × frame
+    rate), and a positive device setting is an optional ceiling rather than a
+    fixed 20 Mbps wall. ``maxWidth`` clamps to 320–3840 (default 1920);
+    ``preferCodec`` is always ``vp8`` in contract 1.0.
     """
 
     wanted: Mapping[str, Any] = requested if isinstance(requested, dict) else {}
@@ -517,20 +534,18 @@ def clamp_quality(
             QUALITY_DEFAULT_FPS,
         ),
     )
-    max_bitrate = min(
-        _clamp_int(
-            wanted.get("maxBitrateKbps"),
-            QUALITY_MIN_BITRATE_KBPS,
-            QUALITY_MAX_BITRATE_KBPS,
-            QUALITY_DEFAULT_BITRATE_KBPS,
-        ),
-        _clamp_int(
-            getattr(settings, "remoteDesktopMaxBitrateKbps", QUALITY_DEFAULT_BITRATE_KBPS),
-            QUALITY_MIN_BITRATE_KBPS,
-            QUALITY_MAX_BITRATE_KBPS,
-            QUALITY_DEFAULT_BITRATE_KBPS,
-        ),
+    requested_bitrate = _clamp_bitrate(wanted.get("maxBitrateKbps"))
+    device_bitrate = _clamp_bitrate(
+        getattr(settings, "remoteDesktopMaxBitrateKbps", 0)
     )
+    if device_bitrate > 0:
+        max_bitrate = (
+            device_bitrate
+            if requested_bitrate == 0
+            else min(requested_bitrate, device_bitrate)
+        )
+    else:
+        max_bitrate = requested_bitrate
     return {
         "maxFps": max_fps,
         "maxBitrateKbps": max_bitrate,

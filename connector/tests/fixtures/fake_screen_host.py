@@ -49,7 +49,7 @@ PERMISSIONS = {
     "accessibility": "granted",
     "inputMonitoring": "granted",
 }
-QUALITY = {"maxFps": 30, "maxBitrateKbps": 4000, "maxWidth": 1600}
+QUALITY = {"maxFps": 30, "maxBitrateKbps": 8000, "maxWidth": 1920}
 
 
 def _write(frame: dict[str, Any]) -> None:
@@ -120,6 +120,7 @@ def _hello() -> None:
                 "supported": True,
                 "codecs": ["vp8"],
                 "quality": dict(QUALITY),
+                "integrity": os.environ.get("AA_FAKE_HOST_INTEGRITY", "medium"),
             },
         }
     )

@@ -12,7 +12,7 @@
       "direction": "ingress",
       "model": "RemoteDesktopClientWsMessage",
       "path": "schemas/client-ws-message.schema.json",
-      "sha256": "cb7549f5726c1878b49294eae37e0354f5987b4b69db8615c4a84359497c4f0d",
+      "sha256": "494e5e9d93107cdf164fd463d68cb8685f2e728e128905c9f7b256cf846dc446",
       "slug": "client-ws-message",
       "transport": "ws"
     },
@@ -28,7 +28,7 @@
       "direction": "ingress",
       "model": "RemoteDesktopDeviceSettings",
       "path": "schemas/device-settings.schema.json",
-      "sha256": "220a236d7cc9e0c0c68f38300a0bebd033e6c79c9b95fc9da19366c8631eeb0d",
+      "sha256": "5de39caa74e23942bd471727fd3f6abcfe3f0fdf3b56b718e7d443797986b728",
       "slug": "device-settings",
       "transport": "http"
     },
@@ -140,7 +140,7 @@
       "direction": "ingress",
       "model": "RemoteDesktopSessionCreateRequest",
       "path": "schemas/session-create-request.schema.json",
-      "sha256": "e1d149cf7658806f7819644fda1a21cf4a95cc48b9f128541a11ba014e547299",
+      "sha256": "2beb26941c6edb7ab6564381ed973016719e3d6d901e4c773e837a3e2ef96e55",
       "slug": "session-create-request",
       "transport": "http"
     },
@@ -172,7 +172,7 @@
       "direction": "egress",
       "model": "RemoteDesktopSession",
       "path": "schemas/session.schema.json",
-      "sha256": "aba9e54b3afe158137e4f9b3406254bf700b779bb2a98991294cd71dc9bd52d4",
+      "sha256": "2c67432b7d365d4e28d98da52cee6921504c3f6553e5aeb2a442b3ecb52b95d1",
       "slug": "session",
       "transport": "http"
     },

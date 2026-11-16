@@ -439,6 +439,7 @@ def test_consent_denial_surfaces_permission_denied_and_ends_the_session() -> Non
 def test_start_failure_reasons_keep_the_connector_code() -> None:
     for code, reason, end_reason in (
         ("rd_host_not_installed", "host_not_installed", "policy_revoked"),
+        ("rd_host_integrity_low", "host_not_installed", "media_error"),
         ("rd_host_not_running", "host_not_running", "media_error"),
         ("rd_capture_failed", "capture_failed", "media_error"),
         ("rd_display_not_found", "display_not_found", "media_error"),
@@ -615,7 +616,7 @@ def test_control_with_unattended_gets_controller_grant() -> None:
 
 def test_join_rejects_when_viewer_limit_reached() -> None:
     store = FakeStore()
-    service, _, _, _, _, _ = _service(store=store)
+    service, _, _, _, broker, _ = _service(store=store)
     participants = [
         RemoteDesktopParticipant(
             participantId=f"pt_{index:020d}",
@@ -638,6 +639,10 @@ def test_join_rejects_when_viewer_limit_reached() -> None:
         createdAt="2026-11-13T00:00:00Z",
         updatedAt="2026-11-13T00:00:00Z",
     )
+    # Four viewers are connected right now, so the fifth join must fail. Presence is
+    # authoritative: disconnected participants are reused instead of counted.
+    for participant in participants:
+        broker.presence[("rds_old", participant.participantId)] = 1.0
 
     with pytest.raises(RemoteDesktopLimitError) as caught:
         asyncio.run(
@@ -651,6 +656,59 @@ def test_join_rejects_when_viewer_limit_reached() -> None:
         )
     assert caught.value.status_code == 429
     assert caught.value.code == "remote_desktop_limit_reached"
+
+
+def test_join_reuses_a_disconnected_participant_instead_of_hitting_the_limit() -> None:
+    """A phone that reopens the viewer must reclaim its slot, not add a viewer.
+
+    Rotation, a process restart or a temporary disconnect leaves the Server session
+    alive. Appending a participant every time eventually made any new request (even a
+    quality change that recreated the viewer) fail with the session-limit error.
+    """
+    store = FakeStore()
+    service, _, _, _, _, _ = _service(store=store)
+    participants = [
+        RemoteDesktopParticipant(
+            participantId=f"pt_{index:020d}",
+            userId="user_1",
+            platform="unknown",
+            createdAt="2026-11-13T00:00:00Z",
+            lastSeenAt="2026-11-13T00:00:00Z",
+        )
+        for index in range(3)
+    ]
+    # Only one of the three is connected; the other two are stale slots.
+    store.sessions["rds_old"] = RemoteDesktopSession(
+        id="rds_old",
+        connectorId="conn_1",
+        userId="user_1",
+        mode="control",
+        state="live",
+        mediaProvider="livekit",
+        mediaRoom="rd_rds_old",
+        mediaUrl="wss://rtc.example.com",
+        participants=participants,
+        createdAt="2026-11-13T00:00:00Z",
+        updatedAt="2026-11-13T00:00:00Z",
+    )
+
+    result = asyncio.run(
+        service.create_or_join(
+            "conn_1",
+            "user_1",
+            {"connectorId": "conn_1", "mode": "control"},
+            client_platform="android",
+            app_version=None,
+        )
+    )
+
+    assert result["created"] is False
+    # The newest disconnected participant is reused; no fourth slot is created.
+    assert result["participantId"] == "pt_00000000000000000002"
+    stored = store.sessions["rds_old"]
+    assert [p.participantId for p in stored.participants] == [
+        "pt_00000000000000000002"
+    ]
 
 
 def test_takeover_revokes_old_controller_and_grants_new_one() -> None:
@@ -929,6 +987,72 @@ def test_release_control_clears_controller_without_body_identity() -> None:
         "publishData",
         False,
     ) in media.permission_updates
+
+
+def test_take_control_raises_can_publish_data_for_a_viewer_grant() -> None:
+    """A viewer that takes control must be allowed to publish data again.
+
+    LiveKit fixes a participant's grants when it joins, so a viewer grant keeps
+    `canPublishData=false` in the SFU for the whole connection: the picture works but every
+    `aa.input`/`aa.pointer` packet is dropped server-side. Only `UpdateParticipant` can
+    change it, so `take_control` has to raise it explicitly.
+    """
+    service, _, _, media, _, _ = _service()
+    created = asyncio.run(
+        service.create_or_join(
+            "conn_1",
+            "user_1",
+            {"connectorId": "conn_1", "mode": "view"},
+            client_platform="web",
+            app_version=None,
+        )
+    )
+    session_id = created["session"]["id"]
+    participant_id = created["participantId"]
+    identity = f"viewer:{participant_id}"
+    assert created["media"]["canPublishData"] is False
+    asyncio.run(
+        RemoteDesktopNotificationHandler(service).apply(
+            "conn_1",
+            "remoteDesktop.state",
+            {"sessionId": session_id, "state": "publishing"},
+        )
+    )
+
+    result = asyncio.run(service.take_control(session_id, "user_1", participant_id))
+
+    assert result["session"]["controller"] == identity
+    assert (identity, "publishData", True) in media.permission_updates
+
+
+def test_release_then_take_control_re_grants_publish_data() -> None:
+    """Re-taking control after a release re-applies the grant the release revoked."""
+    service, _, _, media, _, _ = _service()
+    created = asyncio.run(
+        service.create_or_join(
+            "conn_1",
+            "user_1",
+            {"connectorId": "conn_1", "mode": "control"},
+            client_platform="web",
+            app_version=None,
+        )
+    )
+    session_id = created["session"]["id"]
+    participant_id = created["participantId"]
+    identity = f"viewer:{participant_id}"
+    asyncio.run(
+        RemoteDesktopNotificationHandler(service).apply(
+            "conn_1",
+            "remoteDesktop.state",
+            {"sessionId": session_id, "state": "publishing"},
+        )
+    )
+    asyncio.run(service.release_control(session_id, "user_1", participant_id))
+    assert media.permission_updates[-1] == (identity, "publishData", False)
+
+    asyncio.run(service.take_control(session_id, "user_1", participant_id))
+
+    assert media.permission_updates[-1] == (identity, "publishData", True)
 
 def test_view_mode_with_no_media_is_unavailable() -> None:
     from agent_server.services.remote_desktop_media import NoopMediaProvider

@@ -7,6 +7,7 @@ import pytest
 
 from connector.local.remote_desktop.host import (
     ScreenHostError,
+    ScreenHostLowIntegrity,
     ScreenHostNotInstalled,
     ScreenHostProtocolError,
     ScreenHostSupervisor,
@@ -174,6 +175,26 @@ def test_handshake_timeout_is_reported(tmp_path) -> None:
         try:
             with pytest.raises(ScreenHostTimeout):
                 await supervisor.start("rds_silent")
+            assert not supervisor.running
+        finally:
+            await supervisor.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_low_integrity_host_is_rejected(tmp_path) -> None:
+    events: list[tuple[str, dict]] = []
+
+    async def scenario() -> None:
+        supervisor = _supervisor(
+            tmp_path,
+            events,
+            extra_env={"AA_FAKE_HOST_INTEGRITY": "low"},
+        )
+        try:
+            with pytest.raises(ScreenHostLowIntegrity) as raised:
+                await supervisor.start("rds_low_integrity")
+            assert raised.value.code == "rd_host_integrity_low"
             assert not supervisor.running
         finally:
             await supervisor.shutdown()

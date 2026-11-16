@@ -121,7 +121,7 @@ def test_device_settings_remote_desktop_defaults() -> None:
         "remoteDesktopAllowUnattended": False,
         "remoteDesktopClipboard": False,
         "remoteDesktopMaxFps": 30,
-        "remoteDesktopMaxBitrateKbps": 4000,
+        "remoteDesktopMaxBitrateKbps": 0,
     }
 
 
@@ -130,23 +130,23 @@ def test_device_settings_remote_desktop_ranges() -> None:
         {
             "remoteDesktopEnabled": True,
             "remoteDesktopMaxFps": 45,
-            "remoteDesktopMaxBitrateKbps": 8000,
+            "remoteDesktopMaxBitrateKbps": 20_000,
             "remoteDesktopAllowControl": "yes",
         }
     )
     assert settings["remoteDesktopEnabled"] is True
     assert settings["remoteDesktopMaxFps"] == 45
-    assert settings["remoteDesktopMaxBitrateKbps"] == 8000
+    assert settings["remoteDesktopMaxBitrateKbps"] == 20_000
     assert settings["remoteDesktopAllowControl"] is False
 
     out_of_range = normalize_device_settings(
         {
             "remoteDesktopMaxFps": 4,
-            "remoteDesktopMaxBitrateKbps": 99_999,
+            "remoteDesktopMaxBitrateKbps": 100_001,
         }
     )
     assert out_of_range["remoteDesktopMaxFps"] == 30
-    assert out_of_range["remoteDesktopMaxBitrateKbps"] == 4000
+    assert out_of_range["remoteDesktopMaxBitrateKbps"] == 0
 
     booleans_are_not_integers = normalize_device_settings(
         {"remoteDesktopMaxFps": True}

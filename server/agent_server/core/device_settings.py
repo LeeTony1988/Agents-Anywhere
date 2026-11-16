@@ -26,7 +26,7 @@ class ConnectorDeviceSettings(BaseModel):
     remoteDesktopAllowUnattended: bool = False
     remoteDesktopClipboard: bool = False
     remoteDesktopMaxFps: int = Field(default=30, ge=5, le=60)
-    remoteDesktopMaxBitrateKbps: int = Field(default=4000, ge=500, le=20000)
+    remoteDesktopMaxBitrateKbps: int = Field(default=0, ge=0, le=100_000)
 
 
 class ConnectorDeviceSettingsPatch(BaseModel):
@@ -39,7 +39,7 @@ class ConnectorDeviceSettingsPatch(BaseModel):
     remoteDesktopAllowUnattended: bool | None = None
     remoteDesktopClipboard: bool | None = None
     remoteDesktopMaxFps: int | None = Field(default=None, ge=5, le=60)
-    remoteDesktopMaxBitrateKbps: int | None = Field(default=None, ge=500, le=20000)
+    remoteDesktopMaxBitrateKbps: int | None = Field(default=None, ge=0, le=100_000)
 
 
 class ConnectorDeviceSettingsResponse(BaseModel):

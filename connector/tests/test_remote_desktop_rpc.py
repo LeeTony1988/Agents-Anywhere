@@ -26,7 +26,7 @@ def _settings(**overrides: Any) -> dict[str, Any]:
         "remoteDesktopAllowUnattended": True,
         "remoteDesktopClipboard": False,
         "remoteDesktopMaxFps": 30,
-        "remoteDesktopMaxBitrateKbps": 4000,
+        "remoteDesktopMaxBitrateKbps": 20000,
     }
     settings.update(overrides)
     return settings
@@ -404,15 +404,17 @@ def test_update_quality_and_control_grant() -> None:
     async def scenario() -> None:
         handler = _handler(supervisor)
         await handler.update_quality(
-            {"sessionId": "rds_1", "maxFps": 999, "maxBitrateKbps": 99_999}
+            {"sessionId": "rds_1", "maxFps": 999, "maxBitrateKbps": 0}
         )
         await handler.control_grant(
             {"sessionId": "rds_1", "controllerIdentity": "viewer:pt_1"}
         )
 
     asyncio.run(scenario())
+    # This fixture explicitly asks for a 20 Mbps device ceiling; an automatic
+    # (0) request is capped by it, which is the backward-compatible behavior.
     assert supervisor.quality_calls == [
-        {"maxFps": 30, "maxBitrateKbps": 4000, "maxWidth": 1600}
+        {"maxFps": 30, "maxBitrateKbps": 20_000, "maxWidth": 1920}
     ]
     assert supervisor.control_calls == [("rds_1", "viewer:pt_1")]
 

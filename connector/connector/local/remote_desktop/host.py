@@ -69,6 +69,17 @@ class ScreenHostIntegrityError(ScreenHostNotInstalled):
     code = "rd_host_integrity"
 
 
+class ScreenHostLowIntegrity(ScreenHostIntegrityError):
+    """The host runs below the interactive desktop and cannot inject input.
+
+    Windows UIPI drops ``SendInput`` from a low-integrity process to a medium-integrity
+    window, so refusing the host is better than showing a picture that can never be
+    controlled.
+    """
+
+    code = "rd_host_integrity_low"
+
+
 class ScreenHostNotRunning(ScreenHostError):
     code = "rd_host_not_running"
     retryable = True
@@ -155,12 +166,21 @@ def default_screen_host_path(
         candidates = [
             executable_dir / "screen-host",
             executable_dir.parent / "screen-host",
+            # A developer checkout's packaged layout is the one with a verified
+            # manifest and a medium-integrity label. `target/release` is built
+            # inside the sandbox and can inherit a low integrity label, so it is
+            # only a fallback.
+            Path(__file__).resolve().parents[4] / "screen-host" / "dist",
             Path(__file__).resolve().parents[4] / "screen-host",
         ]
         dev_root = Path(__file__).resolve().parents[4] / "screen-host"
+        # Prefer the optimized build: a debug `cargo test`/`cargo build` binary is
+        # commonly feature-less (no wgc/livekit) and is created inside the sandbox
+        # with a low integrity label. Picking it made remote desktop fail with
+        # `rd_host_integrity_low` even though a good release binary existed.
         dev_candidates = [
-            dev_root / "target" / "debug",
             dev_root / "target" / "release",
+            dev_root / "target" / "debug",
         ]
     searched: list[str] = []
     for root in [*candidates]:
@@ -827,6 +847,16 @@ class ScreenHostSupervisor:
             raise self._hello_error
         if self._hello is None:
             raise ScreenHostProtocolError("screen host closed before hello")
+        capabilities = self._hello.get("capabilities")
+        integrity = capabilities.get("integrity") if isinstance(capabilities, dict) else None
+        if integrity in {"low", "untrusted"}:
+            error = ScreenHostLowIntegrity(
+                "screen host is running at "
+                f"{integrity} integrity; Windows UIPI will block its input injection. "
+                "Start the Connector outside the low-integrity sandbox/desktop session."
+            )
+            self._hello_error = error
+            raise error
 
     def _assign_windows_job(self, pid: int) -> None:
         if os.name != "nt":
@@ -1068,7 +1098,18 @@ class ScreenHostSupervisor:
                     if not line:
                         continue
                     self._stderr_lines.append(line)
-                    logger.debug("screen-host: {}", line[:1000])
+                    # Input diagnostics are the only place that says whether a viewer's
+                    # taps arrived and why they were dropped, so they stay visible at the
+                    # default log level (about one line per second while input flows).
+                    # Everything else the host writes is periodic and stays at debug.
+                    if "data-channel input" in line:
+                        logger.info("screen-host: {}", line[:1000])
+                    elif " WARN " in line or " ERROR " in line:
+                        # A SendInput rejection is the difference between "applied" and
+                        # "the user sees nothing"; never hide it behind debug.
+                        logger.warning("screen-host: {}", line[:1000])
+                    else:
+                        logger.debug("screen-host: {}", line[:1000])
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - stderr is diagnostics only

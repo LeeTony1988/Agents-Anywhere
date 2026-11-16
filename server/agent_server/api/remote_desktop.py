@@ -47,7 +47,7 @@ class QualityRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     maxFps: int | None = Field(default=None, ge=5, le=60)
-    maxBitrateKbps: int | None = Field(default=None, ge=500, le=20000)
+    maxBitrateKbps: int | None = Field(default=None, ge=0, le=100_000)
     maxWidth: int | None = Field(default=None, ge=320, le=3840)
     preferCodec: Literal["vp8"] | None = None
 

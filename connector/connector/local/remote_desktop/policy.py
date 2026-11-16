@@ -13,11 +13,13 @@ QUALITY_MIN_FPS = 5
 QUALITY_MAX_FPS = 60
 QUALITY_DEFAULT_FPS = 30
 QUALITY_MIN_BITRATE_KBPS = 500
-QUALITY_MAX_BITRATE_KBPS = 20_000
-QUALITY_DEFAULT_BITRATE_KBPS = 4000
+# 0 = automatic: the host scales the encoder ceiling with resolution and frame
+# rate. Positive values are still accepted as explicit caps.
+QUALITY_MAX_BITRATE_KBPS = 100_000
+QUALITY_DEFAULT_BITRATE_KBPS = 0
 QUALITY_MIN_WIDTH = 320
 QUALITY_MAX_WIDTH = 3840
-QUALITY_DEFAULT_WIDTH = 1600
+QUALITY_DEFAULT_WIDTH = 1920
 QUALITY_PREFERRED_CODEC = "vp8"
 CONSENT_TIMEOUT_SECONDS = 60.0
 
@@ -129,11 +131,8 @@ class RemoteDesktopPolicy:
                 QUALITY_MAX_FPS,
                 QUALITY_DEFAULT_FPS,
             ),
-            max_bitrate_kbps=_int_in_range(
+            max_bitrate_kbps=_bitrate_in_range(
                 normalized["remoteDesktopMaxBitrateKbps"],
-                QUALITY_MIN_BITRATE_KBPS,
-                QUALITY_MAX_BITRATE_KBPS,
-                QUALITY_DEFAULT_BITRATE_KBPS,
             ),
         )
 
@@ -155,15 +154,14 @@ class RemoteDesktopPolicy:
             ),
             self.max_fps,
         )
-        max_bitrate = min(
-            _int_in_range(
-                wanted.get("maxBitrateKbps"),
-                QUALITY_MIN_BITRATE_KBPS,
-                QUALITY_MAX_BITRATE_KBPS,
-                QUALITY_DEFAULT_BITRATE_KBPS,
-            ),
-            self.max_bitrate_kbps,
-        )
+        requested_bitrate = _bitrate_in_range(wanted.get("maxBitrateKbps"))
+        if self.max_bitrate_kbps <= 0:
+            max_bitrate = requested_bitrate
+        elif requested_bitrate == 0:
+            # Automatic, but the device owner set an explicit ceiling.
+            max_bitrate = self.max_bitrate_kbps
+        else:
+            max_bitrate = min(requested_bitrate, self.max_bitrate_kbps)
         return {
             "maxFps": max_fps,
             "maxBitrateKbps": max_bitrate,
@@ -182,3 +180,15 @@ def _int_in_range(value: Any, minimum: int, maximum: int, default: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         return default
     return max(minimum, min(maximum, value))
+
+
+def _bitrate_in_range(value: Any) -> int:
+    """`0` is the automatic sentinel; positive values are explicit caps."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return QUALITY_DEFAULT_BITRATE_KBPS
+    if value <= 0:
+        return 0
+    return max(
+        QUALITY_MIN_BITRATE_KBPS,
+        min(value, QUALITY_MAX_BITRATE_KBPS),
+    )

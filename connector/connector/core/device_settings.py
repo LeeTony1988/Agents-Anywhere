@@ -21,12 +21,13 @@ _DEFAULTS: dict[str, bool | int] = {
     "remoteDesktopAllowUnattended": False,
     "remoteDesktopClipboard": False,
     "remoteDesktopMaxFps": 30,
-    "remoteDesktopMaxBitrateKbps": 4000,
+    # 0 = automatic (host derives the ceiling from resolution × frame rate).
+    "remoteDesktopMaxBitrateKbps": 0,
 }
 
 _INTEGER_RANGES: dict[str, tuple[int, int]] = {
     "remoteDesktopMaxFps": (5, 60),
-    "remoteDesktopMaxBitrateKbps": (500, 20_000),
+    "remoteDesktopMaxBitrateKbps": (0, 100_000),
 }
 
 

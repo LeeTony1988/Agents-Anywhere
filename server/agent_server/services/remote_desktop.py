@@ -35,6 +35,7 @@ from agent_server.core.remote_desktop import (
     RemoteDesktopUnavailableError,
     clamp_quality,
     new_participant_id,
+    parse_iso,
     participants_with_new,
     touch_participant,
     utc_now_iso,
@@ -285,6 +286,7 @@ _START_FAILURE_REASONS: dict[str, str] = {
     "rd_permission_denied": "permission_denied",
     "rd_host_not_installed": "host_not_installed",
     "rd_host_integrity": "host_not_installed",
+    "rd_host_integrity_low": "host_not_installed",
     "rd_host_not_running": "host_not_running",
     "rd_host_timeout": "host_timeout",
     "rd_capture_failed": "capture_failed",
@@ -343,8 +345,10 @@ class RemoteDesktopService:
         active = await self._store.find_active_remote_desktop_session(connector_id)
         viewer_count = 0
         if active is not None:
+            # Presence is authoritative: a participant that closed the app without
+            # ending the session must not keep the device at its viewer limit.
             seen = await self._broker.participants_seen(active.id)
-            viewer_count = len(seen) if seen else len(active.participants)
+            viewer_count = len(seen)
         capabilities = await build_capabilities(
             connector_id,
             settings,
@@ -435,13 +439,16 @@ class RemoteDesktopService:
         settings = await self._settings(connector_id)
         facts = await host_facts(connector_id, self._requester, self._broker)
         active = await self._store.find_active_remote_desktop_session(connector_id)
+        viewer_count = 0
+        if active is not None:
+            viewer_count = len(await self._broker.participants_seen(active.id))
         capabilities = await build_capabilities(
             connector_id,
             settings,
             facts,
             media_available=self._media.available,
             active_session=active,
-            viewer_count=len(active.participants) if active is not None else 0,
+            viewer_count=viewer_count,
             max_viewers=self._max_viewers + 1,
             revision=await self._next_revision(connector_id),
         )
@@ -673,6 +680,86 @@ class RemoteDesktopService:
             "created": True,
         }
 
+    def _participant_slot(
+        self,
+        session: RemoteDesktopSession,
+        user_id: str,
+        *,
+        platform: str,
+        app_version: str | None,
+        now: str,
+        connected: set[str],
+    ) -> tuple[str, list[RemoteDesktopParticipant]]:
+        """Reuse a disconnected participant before adding another viewer.
+
+        Mobile clients recreate their viewer (rotation, process restart) without ending
+        the Server session. Every recreation used to append a new participant, so after
+        a few re-entries the device hit its viewer limit and even a quality change looked
+        like ``remote_desktop_limit_reached``. A participant that is not currently
+        connected is this user coming back: reuse its id and keep the slot.
+        """
+        if len(connected) >= self._max_viewers + 1:
+            raise RemoteDesktopLimitError(
+                status_code=429,
+                message="Remote desktop viewer limit reached.",
+                details={"limit": self._max_viewers},
+            )
+        now_dt = parse_iso(now) or datetime.now(UTC)
+        recent_cutoff = now_dt - timedelta(seconds=10)
+        reusable = next(
+            (
+                participant
+                for participant in reversed(session.participants)
+                if participant.userId == user_id
+                and participant.participantId not in connected
+            ),
+            None,
+        )
+        if reusable is not None:
+            kept: list[RemoteDesktopParticipant] = []
+            for participant in session.participants:
+                if participant.participantId == reusable.participantId:
+                    kept.append(
+                        participant.model_copy(
+                            update={
+                                "lastSeenAt": now,
+                                "platform": platform,
+                                "appVersion": app_version,
+                            }
+                        )
+                    )
+                elif participant.participantId in connected:
+                    kept.append(participant)
+                else:
+                    last_seen = parse_iso(participant.lastSeenAt or participant.createdAt)
+                    if last_seen is not None and last_seen >= recent_cutoff:
+                        kept.append(participant)
+            return reusable.participantId, kept
+
+        kept = []
+        for participant in session.participants:
+            if participant.participantId in connected:
+                kept.append(participant)
+                continue
+            last_seen = parse_iso(participant.lastSeenAt or participant.createdAt)
+            if last_seen is not None and last_seen >= recent_cutoff:
+                kept.append(participant)
+        if len(kept) >= self._max_viewers + 1:
+            raise RemoteDesktopLimitError(
+                status_code=429,
+                message="Remote desktop viewer limit reached.",
+                details={"limit": self._max_viewers},
+            )
+        participant_id = new_participant_id()
+        return participant_id, participants_with_new(
+            kept,
+            participant_id,
+            user_id,
+            platform=platform,
+            app_version=app_version,
+            at=now,
+        )
+
     async def _join(
         self,
         session: RemoteDesktopSession,
@@ -683,21 +770,15 @@ class RemoteDesktopService:
         app_version: str | None,
         settings: ConnectorDeviceSettings,
     ) -> dict[str, Any]:
-        if len(session.participants) >= self._max_viewers + 1:
-            raise RemoteDesktopLimitError(
-                status_code=429,
-                message="Remote desktop viewer limit reached.",
-                details={"limit": self._max_viewers},
-            )
-        participant_id = new_participant_id()
         now = self._clock()
-        participants = participants_with_new(
-            session.participants,
-            participant_id,
+        seen = await self._broker.participants_seen(session.id)
+        participant_id, participants = self._participant_slot(
+            session,
             user_id,
             platform="unknown",
             app_version=app_version,
-            at=now,
+            now=now,
+            connected=set(seen),
         )
         mode = request["mode"]
         grant: MediaGrant | None = None
@@ -791,6 +872,30 @@ class RemoteDesktopService:
                 room,
             )
         await self._grant_host_control(session, identity, lease)
+
+    async def _allow_controller_data(
+        self, session: RemoteDesktopSession, identity: str
+    ) -> None:
+        """Raises `canPublishData` for a participant that just took control.
+
+        A LiveKit token's grants are fixed when the participant joins, so a viewer that
+        joined with a viewer grant and later takes control keeps `canPublishData=false` in
+        the SFU: the SFU drops every `aa.input`/`aa.pointer` packet it sends while the
+        picture keeps flowing, which looks like "the remote desktop ignores me".
+        `UpdateParticipant` is the only way to change a joined participant's permission;
+        `release_control` and the lease expiry already use it to revoke.
+        """
+        try:
+            await self._media.update_can_publish_data(session, identity, True)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - media must never break the control plane
+            logger.warning(
+                "remote desktop publish-data grant failed session_id={} identity={} error={}",
+                session.id,
+                identity,
+                str(exc) or exc.__class__.__name__,
+            )
 
     async def _start_host(
         self,
@@ -924,6 +1029,9 @@ class RemoteDesktopService:
         if previous_controller == identity:
             await self._update_session(session, controllerLeaseExpiresAt=lease)
             session = await self._get_session(session_id, user_id)
+            # The lease may have been released (which revokes data publishing) since this
+            # participant joined, so re-taking control re-applies the grant.
+            await self._allow_controller_data(session, identity)
             await self._grant_host_control(session, identity, lease)
             await self.publish_session_updated(session)
             return {"session": self._session_api(session), "pending": False}
@@ -932,6 +1040,7 @@ class RemoteDesktopService:
             session, controller=identity, controllerLeaseExpiresAt=lease
         )
         session = await self._get_session(session_id, user_id)
+        await self._allow_controller_data(session, identity)
         await self._apply_takeover(
             session, participant_id, previous_controller=previous_controller
         )
@@ -966,9 +1075,19 @@ class RemoteDesktopService:
             session, controller=None, controllerLeaseExpiresAt=None
         )
         session = await self._get_session(session_id, user_id)
-        await self._media.update_can_publish_data(
-            session, viewer_identity(participant_id), False
-        )
+        try:
+            await self._media.update_can_publish_data(
+                session, viewer_identity(participant_id), False
+            )
+        except Exception as exc:  # noqa: BLE001 - host release must still run
+            logger.warning(
+                "remote desktop publish-data revoke failed session_id={} error={}",
+                session.id,
+                str(exc) or exc.__class__.__name__,
+            )
+        # Also clear the host allowlist: this is what releases a mouse button
+        # that was held when the user let go, even if the final data packet
+        # raced with the SFU permission change.
         await self._grant_host_control(session, None, None)
         await self.publish_session_updated(session)
         return self._session_response(session)

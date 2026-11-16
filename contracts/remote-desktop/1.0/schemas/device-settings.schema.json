@@ -43,9 +43,9 @@
     },
     "remoteDesktopMaxBitrateKbps": {
       "type": "integer",
-      "minimum": 500,
-      "maximum": 20000,
-      "default": 4000
+      "minimum": 0,
+      "maximum": 100000,
+      "default": 0
     }
   },
   "x-direction": "ingress",

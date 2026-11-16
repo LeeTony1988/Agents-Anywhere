@@ -584,6 +584,14 @@ def main() -> int:
     workdir = Path(tempfile.mkdtemp(prefix="rd-e2e-"))
     log_dir = workdir / "logs"
     log_dir.mkdir()
+    # The checkout's `screen-host/target` can carry a Low mandatory label (for
+    # example when the repository lives inside a desktop sandbox). A process
+    # started from such a path inherits Low integrity and Windows UIPI blocks its
+    # SendInput. Run the exact binary under test from the E2E workdir instead,
+    # which has the normal user's integrity.
+    host_binary_copy = workdir / "screen-host" / host_binary.name
+    host_binary_copy.parent.mkdir()
+    shutil.copy2(host_binary, host_binary_copy)
     server_process = connector_process = None
     try:
         asyncio.run(ensure_database(db_url, fresh=args.fresh))
@@ -658,6 +666,12 @@ def main() -> int:
         if configure.returncode != 0:
             log(f"FAIL: connector configure\n{configure.stdout}\n{configure.stderr}")
             return 1
+        config_data = json.loads(config_path.read_text("utf-8"))
+        config_data["remoteDesktopHostPath"] = str(host_binary_copy)
+        config_path.write_text(
+            json.dumps(config_data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
 
         log("starting connector")
         connector_process = start_connector(

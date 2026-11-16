@@ -65,8 +65,8 @@
         },
         "maxBitrateKbps": {
           "type": "integer",
-          "minimum": 500,
-          "maximum": 20000
+          "minimum": 0,
+          "maximum": 100000
         },
         "maxWidth": {
           "type": "integer",

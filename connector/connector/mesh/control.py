@@ -42,7 +42,8 @@ class DeviceSettings(BaseModel):
     remoteDesktopAllowUnattended: bool = False
     remoteDesktopClipboard: bool = False
     remoteDesktopMaxFps: int = 30
-    remoteDesktopMaxBitrateKbps: int = 4000
+    # 0 = automatic; a positive value is an optional ceiling.
+    remoteDesktopMaxBitrateKbps: int = 0
 
 
 class RemoteDesktopState(BaseModel):

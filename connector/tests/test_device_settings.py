@@ -25,7 +25,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "remoteDesktopAllowUnattended": False,
     "remoteDesktopClipboard": False,
     "remoteDesktopMaxFps": 30,
-    "remoteDesktopMaxBitrateKbps": 4000,
+    "remoteDesktopMaxBitrateKbps": 0,
 }
 
 
