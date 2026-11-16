@@ -2834,7 +2834,7 @@
       "controlNotAllowed": "Remote control is disabled in the device settings.",
       "connector_offline": "The device is offline.",
       "host_not_running": "The remote-desktop host is not running on the device. Start it there and try again.",
-      "host_not_installed": "The remote-desktop host is not installed on the device.",
+      "host_not_installed": "The remote-desktop host is unavailable (not installed, missing permissions, or restricted by the system).",
       "connector_outdated": "The connector on the device is too old. Upgrade it and try again.",
       "unsupported_platform": "The device's platform does not support remote desktop yet.",
       "screen_permission_denied": "The device lacks screen-recording permission. Grant it there and try again.",

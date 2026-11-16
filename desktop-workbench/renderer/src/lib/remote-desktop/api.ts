@@ -249,7 +249,7 @@ export const REMOTE_DESKTOP_ERROR_MESSAGES: Record<string, string> = {
 const UNAVAILABLE_REASON_MESSAGES: Record<string, string> = {
   connector_offline: "设备离线，暂时无法使用远程桌面。",
   host_not_running: "设备上的远程桌面组件未运行，请在设备上启动后重试。",
-  host_not_installed: "设备上没有安装远程桌面组件。",
+  host_not_installed: "设备上的远程桌面组件不可用（未安装、权限不足或被系统限制）。",
   connector_outdated: "设备上的连接器版本过旧，请升级后再试。",
   unsupported_platform: "设备的系统平台暂不支持远程桌面。",
   screen_permission_denied: "设备缺少屏幕录制权限，请在设备上授权后重试。",

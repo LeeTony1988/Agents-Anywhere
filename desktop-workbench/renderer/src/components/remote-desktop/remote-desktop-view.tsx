@@ -182,7 +182,7 @@ export function RemoteDesktopView({ connectorId, onExit }: Props) {
       .createSession(token, {
         connectorId,
         mode: "view",
-        quality: { maxFps: 30, maxBitrateKbps: 4000, maxWidth: 1920 },
+        quality: { maxFps: 30, maxWidth: 1920 },
         client: {
           platform: "web",
           viewport: {
@@ -1214,7 +1214,7 @@ function StatsTable({
   onSelectQuality,
 }: {
   stats: RemoteDesktopStreamStats | null
-  onSelectQuality: (quality: { maxFps: number; maxBitrateKbps: number }) => void
+  onSelectQuality: (quality: { maxFps: number; maxWidth?: number }) => void
 }) {
   const t = useTranslations("remoteDesktop")
   const rows: Array<[string, string]> = [
@@ -1238,10 +1238,10 @@ function StatsTable({
         </tbody>
       </table>
       <div className="mt-2 flex gap-1">
-        <Button size="sm" variant="outline" onClick={() => onSelectQuality({ maxFps: 15, maxBitrateKbps: 1500 })}>
+        <Button size="sm" variant="outline" onClick={() => onSelectQuality({ maxFps: 15 })}>
           {t("qualitySmooth")}
         </Button>
-        <Button size="sm" variant="outline" onClick={() => onSelectQuality({ maxFps: 30, maxBitrateKbps: 4000 })}>
+        <Button size="sm" variant="outline" onClick={() => onSelectQuality({ maxFps: 30 })}>
           {t("qualitySharp")}
         </Button>
       </div>
