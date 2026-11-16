@@ -25,16 +25,26 @@ class RemoteGestureStateMachineTest {
     }
 
     @Test
-    fun singleFingerDragMovesThePointerRelativelyAndNeverClicks() {
+    fun singleFingerDragPressesTheLeftButtonAtTheTouchPointAndReleasesIt() {
         machine.down(x = 100f, y = 100f, timeMillis = 0L)
 
         val first = machine.move(x = 140f, y = 100f, timeMillis = 16L)
         val second = machine.move(x = 170f, y = 90f, timeMillis = 32L)
         val released = machine.up(x = 170f, y = 90f, timeMillis = 48L)
 
-        assertEquals(listOf<RemoteGestureAction>(RemoteGestureAction.RemotePointer(40f, 0f)), first)
+        assertEquals(
+            listOf<RemoteGestureAction>(
+                RemoteGestureAction.RemotePointerDown(PointerButton.Left, 100f, 100f),
+                RemoteGestureAction.RemotePointer(40f, 0f),
+            ),
+            first,
+        )
         assertEquals(listOf<RemoteGestureAction>(RemoteGestureAction.RemotePointer(30f, -10f)), second)
-        assertTrue("A drag must not turn into a tap on release", released.isEmpty())
+        assertEquals(
+            "A drag releases the button instead of clicking",
+            listOf<RemoteGestureAction>(RemoteGestureAction.PointerUp(PointerButton.Left)),
+            released,
+        )
     }
 
     @Test
@@ -44,9 +54,131 @@ class RemoteGestureStateMachineTest {
         assertEquals("Below the tap slop nothing is sent", emptyList<RemoteGestureAction>(), machine.move(106f, 100f, 10L))
         // 20 px of travel crosses the 16 px slop; the 6 px already spent must not be lost.
         assertEquals(
-            listOf<RemoteGestureAction>(RemoteGestureAction.RemotePointer(20f, 0f)),
+            listOf<RemoteGestureAction>(
+                RemoteGestureAction.RemotePointerDown(PointerButton.Left, 100f, 100f),
+                RemoteGestureAction.RemotePointer(20f, 0f, elapsedMillis = 20L),
+            ),
             machine.move(120f, 100f, 20L),
         )
+    }
+
+    @Test
+    fun mouseModeMovesThePointerWithoutPressingALeftButton() {
+        val mouse = RemoteGestureStateMachine(pointerMode = RemotePointerMode.Mouse)
+        mouse.down(x = 100f, y = 100f, timeMillis = 0L)
+
+        val moved = mouse.move(x = 120f, y = 100f, timeMillis = 20L)
+        val lifted = mouse.up(x = 120f, y = 100f, timeMillis = 40L)
+
+        assertEquals(
+            listOf<RemoteGestureAction>(
+                RemoteGestureAction.RemotePointer(dx = 20f, dy = 0f, elapsedMillis = 20L),
+            ),
+            moved,
+        )
+        assertTrue("A moved trackpad gesture is not a click", lifted.isEmpty())
+    }
+
+    @Test
+    fun mouseModeSendsTheFirstPixelWithoutADeadZone() {
+        val mouse = RemoteGestureStateMachine(pointerMode = RemotePointerMode.Mouse)
+        mouse.down(x = 100f, y = 100f, timeMillis = 0L)
+
+        assertEquals(
+            "A 3 px adjustment must reach the cursor immediately, not after the tap slop",
+            listOf<RemoteGestureAction>(
+                RemoteGestureAction.RemotePointer(dx = 3f, dy = 0f, elapsedMillis = 10L),
+            ),
+            mouse.move(103f, 100f, 10L),
+        )
+        assertEquals(
+            listOf<RemoteGestureAction>(
+                RemoteGestureAction.RemotePointer(dx = 3f, dy = 0f, elapsedMillis = 10L),
+            ),
+            mouse.move(106f, 100f, 20L),
+        )
+    }
+
+    @Test
+    fun mouseModeHoldingTheCursorRingPressesAndReleasesTheLeftButton() {
+        val mouse = RemoteGestureStateMachine(pointerMode = RemotePointerMode.Mouse)
+
+        assertEquals(
+            "Grabbing the ring presses the button before the finger moves",
+            listOf<RemoteGestureAction>(RemoteGestureAction.PointerDown(PointerButton.Left)),
+            mouse.down(x = 100f, y = 100f, timeMillis = 0L, holdButton = true),
+        )
+        assertEquals(
+            listOf<RemoteGestureAction>(
+                RemoteGestureAction.RemotePointer(dx = 12f, dy = 4f, elapsedMillis = 16L),
+            ),
+            mouse.move(x = 112f, y = 104f, timeMillis = 16L),
+        )
+        assertEquals(
+            "Lifting after the grab releases the button, not just the finger",
+            listOf<RemoteGestureAction>(RemoteGestureAction.PointerUp(PointerButton.Left)),
+            mouse.up(x = 112f, y = 104f, timeMillis = 32L),
+        )
+        assertFalse(mouse.isDragLocked)
+    }
+
+    @Test
+    fun grabbingTheCursorRingSuppressesTheLongPressRightClick() {
+        val mouse = RemoteGestureStateMachine(pointerMode = RemotePointerMode.Mouse)
+        mouse.down(x = 100f, y = 100f, timeMillis = 0L, holdButton = true)
+
+        assertTrue(
+            "A stationary grabbed ring is a held drag, not a right click",
+            mouse.longPress(timeMillis = 600L).isEmpty(),
+        )
+    }
+
+    @Test
+    fun grabbingTheCursorRingWhileDragLockedDoesNotPressTheButtonTwice() {
+        val mouse = RemoteGestureStateMachine(pointerMode = RemotePointerMode.Mouse)
+        mouse.doubleTap()
+
+        assertTrue(
+            "The drag lock already holds the left button",
+            mouse.down(x = 100f, y = 100f, timeMillis = 100L, holdButton = true).isEmpty(),
+        )
+    }
+
+    @Test
+    fun mouseModeTapsAtTheCurrentCursorInsteadOfTheTouchPoint() {
+        val mouse = RemoteGestureStateMachine(pointerMode = RemotePointerMode.Mouse)
+        mouse.down(x = 100f, y = 100f, timeMillis = 0L)
+
+        val actions = mouse.up(x = 101f, y = 102f, timeMillis = 100L)
+
+        assertEquals(
+            listOf<RemoteGestureAction>(RemoteGestureAction.ClickAtCursor(PointerButton.Left)),
+            actions,
+        )
+    }
+
+    @Test
+    fun mouseModeLongPressIsARightClickAtTheCursor() {
+        val mouse = RemoteGestureStateMachine(pointerMode = RemotePointerMode.Mouse)
+        mouse.down(x = 100f, y = 100f, timeMillis = 0L)
+
+        assertEquals(
+            listOf<RemoteGestureAction>(RemoteGestureAction.RightClickAtCursor),
+            mouse.longPress(timeMillis = 500L),
+        )
+    }
+
+    @Test
+    fun switchingPointerModeMidDragReleasesTheHeldButton() {
+        val machine = RemoteGestureStateMachine()
+        machine.down(x = 100f, y = 100f, timeMillis = 0L)
+        machine.move(x = 160f, y = 100f, timeMillis = 20L)
+
+        assertEquals(
+            listOf<RemoteGestureAction>(RemoteGestureAction.ReleaseAll),
+            machine.setPointerMode(RemotePointerMode.Mouse),
+        )
+        assertEquals(RemotePointerMode.Mouse, machine.mode)
     }
 
     @Test
@@ -118,12 +250,60 @@ class RemoteGestureStateMachineTest {
     }
 
     @Test
+    fun liftingOneFingerFromATwoFingerScrollDoesNotClickOnTheFinalLift() {
+        val mouse = RemoteGestureStateMachine(pointerMode = RemotePointerMode.Mouse)
+        mouse.down(x = 100f, y = 100f, timeMillis = 0L, pointerCount = 2, spread = 120f)
+        mouse.move(x = 100f, y = 130f, timeMillis = 20L, pointerCount = 2, spread = 120f)
+
+        assertTrue(
+            "Dropping to one finger only re-anchors the scroll",
+            mouse.move(x = 100f, y = 130f, timeMillis = 40L, pointerCount = 1, spread = 0f).isEmpty(),
+        )
+        assertTrue(mouse.isMultiFinger)
+        assertTrue(
+            "A multi-finger gesture must not turn the remaining finger into a long-press right click",
+            mouse.longPress(timeMillis = 600L).isEmpty(),
+        )
+        assertTrue(
+            "The last finger of a two-finger scroll must not click",
+            mouse.up(x = 100f, y = 130f, timeMillis = 660L, pointerCount = 1, spread = 0f).isEmpty(),
+        )
+    }
+
+    @Test
     fun aTwoFingerTapIsARightClick() {
         machine.down(x = 120f, y = 140f, timeMillis = 0L, pointerCount = 2, spread = 110f)
 
         assertEquals(
             listOf<RemoteGestureAction>(RemoteGestureAction.RightClick(120f, 140f)),
             machine.up(x = 120f, y = 140f, timeMillis = 90L, pointerCount = 2, spread = 110f),
+        )
+    }
+
+    @Test
+    fun aTwoFingerTapStillRightClicksWhenTheFirstFingerLiftsEarly() {
+        val mouse = RemoteGestureStateMachine(pointerMode = RemotePointerMode.Mouse)
+        mouse.down(x = 120f, y = 140f, timeMillis = 0L, pointerCount = 2, spread = 110f)
+
+        assertTrue(
+            "Dropping to one finger only re-anchors the pending tap",
+            mouse.move(x = 120f, y = 140f, timeMillis = 30L, pointerCount = 1, spread = 0f).isEmpty(),
+        )
+        assertEquals(
+            listOf<RemoteGestureAction>(RemoteGestureAction.RightClickAtCursor),
+            mouse.up(x = 120f, y = 140f, timeMillis = 60L, pointerCount = 1, spread = 0f),
+        )
+    }
+
+    @Test
+    fun aDirectTouchTwoFingerTapStillRightClicksWhenFingersLiftSeparately() {
+        val direct = RemoteGestureStateMachine()
+        direct.down(x = 120f, y = 140f, timeMillis = 0L, pointerCount = 2, spread = 110f)
+        direct.move(x = 120f, y = 140f, timeMillis = 30L, pointerCount = 1, spread = 0f)
+
+        assertEquals(
+            listOf<RemoteGestureAction>(RemoteGestureAction.RightClick(120f, 140f)),
+            direct.up(x = 120f, y = 140f, timeMillis = 60L, pointerCount = 1, spread = 0f),
         )
     }
 
@@ -166,7 +346,10 @@ class RemoteGestureStateMachineTest {
         assertTrue(machine.isDragLocked)
 
         machine.down(101f, 100f, 240L)
-        machine.up(101f, 100f, 280L)
+        assertTrue(
+            "A tap while the drag lock holds the button must not click or release it",
+            machine.up(101f, 100f, 280L).isEmpty(),
+        )
         machine.down(101f, 100f, 300L)
         val unlocked = machine.up(101f, 100f, 340L)
 
@@ -231,13 +414,28 @@ class RemoteGestureStateMachineTest {
     }
 
     @Test
-    fun addingASecondFingerMidDragReanchorsTheGesture() {
+    fun cancellingADragReleasesTheLeftButton() {
         machine.down(100f, 100f, 0L)
         machine.move(160f, 100f, 20L)
 
-        machine.down(160f, 100f, 30L, pointerCount = 2, spread = 80f)
+        assertEquals(
+            listOf<RemoteGestureAction>(RemoteGestureAction.ReleaseAll),
+            machine.cancel(),
+        )
+    }
+
+    @Test
+    fun addingASecondFingerMidDragReleasesTheLeftButtonAndReanchorsTheGesture() {
+        machine.down(100f, 100f, 0L)
+        machine.move(160f, 100f, 20L)
+
+        val secondFinger = machine.down(160f, 100f, 30L, pointerCount = 2, spread = 80f)
         val actions = machine.move(160f, 130f, 50L, pointerCount = 2, spread = 80f)
 
+        assertEquals(
+            listOf<RemoteGestureAction>(RemoteGestureAction.PointerUp(PointerButton.Left)),
+            secondFinger,
+        )
         assertEquals(listOf<RemoteGestureAction>(RemoteGestureAction.Scroll(dx = 0f, dy = 30f)), actions)
     }
 

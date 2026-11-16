@@ -57,6 +57,19 @@ class RemoteInputDispatcherTest {
     }
 
     @Test
+    fun aMouseModeClickHappensAtTheCurrentCursorAndDoesNotJump() {
+        dispatcher.setCursor(0.25f, 0.75f)
+        dispatcher.setPointerMode(RemotePointerMode.Mouse)
+
+        dispatcher.clickHere(PointerButton.Left)
+
+        assertEquals(2, inputs.size)
+        assertEquals(0.25, inputs[0].getDouble("x"), 0.001)
+        assertEquals(0.75, inputs[0].getDouble("y"), 0.001)
+        assertTrue("Clicking at the cursor must not emit a move", frames.isEmpty())
+    }
+
+    @Test
     fun aRightClickCarriesTheRightButton() {
         dispatcher.clickAt(x = 200f, y = 100f, button = PointerButton.Right, viewport = viewport)
 
@@ -91,12 +104,19 @@ class RemoteInputDispatcherTest {
         dispatcher.setButton(PointerButton.Left, down = true)
         dispatcher.movePointer(dxView = 10f, dyView = 0f, viewport = viewport)
 
-        val frame = decodePointerFrame(frames.last())!!
-        assertEquals(REMOTE_POINTER_BUTTON_LEFT, frame.buttons)
-        assertEquals(REMOTE_POINTER_FLAG_BUTTONS_CHANGED, frame.flags)
+        val pressFrame = decodePointerFrame(frames.first())!!
+        assertEquals(REMOTE_POINTER_BUTTON_LEFT, pressFrame.buttons)
+        assertEquals(REMOTE_POINTER_FLAG_BUTTONS_CHANGED, pressFrame.flags)
+        val moveFrame = decodePointerFrame(frames.last())!!
+        assertEquals(REMOTE_POINTER_BUTTON_LEFT, moveFrame.buttons)
 
         dispatcher.setButton(PointerButton.Left, down = false)
         assertEquals(0, dispatcher.buttons)
+        assertEquals(
+            "The release frame must carry an empty mask so a late move cannot re-press",
+            0,
+            decodePointerFrame(frames.last())!!.buttons,
+        )
     }
 
     @Test
@@ -107,6 +127,21 @@ class RemoteInputDispatcherTest {
         assertEquals("wheel", wheel.getString("t"))
         assertEquals(48.0, wheel.getDouble("dy"), 0.001)
         assertEquals("pixel", wheel.getString("unit"))
+    }
+
+    @Test
+    fun aButtonReleaseBypassesTheRateLimitSoTheHostCannotStayPressed() {
+        dispatcher.setButton(PointerButton.Left, down = true)
+        repeat(MAX_REMOTE_INPUT_EVENTS_PER_SECOND) { dispatcher.scroll(dx = 0f, dy = 1f) }
+        inputs.clear()
+        frames.clear()
+
+        dispatcher.setButton(PointerButton.Left, down = false)
+
+        val release = inputs.single()
+        assertEquals("pointer", release.getString("t"))
+        assertEquals("up", release.getString("a"))
+        assertEquals(0, decodePointerFrame(frames.last())!!.buttons)
     }
 
     @Test
@@ -133,6 +168,11 @@ class RemoteInputDispatcherTest {
         assertEquals("release_all", event.getString("t"))
         assertEquals("pagehide", event.getString("reason"))
         assertEquals(0, dispatcher.buttons)
+        assertEquals(
+            "release_all must also publish an empty button mask on the lossy pointer plane",
+            0,
+            decodePointerFrame(frames.last())!!.buttons,
+        )
     }
 
     @Test

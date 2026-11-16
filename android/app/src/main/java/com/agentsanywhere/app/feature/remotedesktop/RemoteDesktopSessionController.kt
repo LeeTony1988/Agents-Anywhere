@@ -129,12 +129,18 @@ class RemoteDesktopSessionController(
     private val _trackSize = MutableStateFlow<RemoteDesktopTrackSize?>(null)
     val trackSize: StateFlow<RemoteDesktopTrackSize?> = _trackSize.asStateFlow()
 
+    /** A non-fatal message (a rejected quality change, a keyframe request failure). */
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice.asStateFlow()
+
     private val inputEncoder = RemoteInputEncoder()
 
     private var currentSession: RemoteDesktopSession? = null
     private var participantId: String? = null
     private var requestedMode: RemoteDesktopMode = RemoteDesktopMode.View
     private var requestedQuality: RemoteDesktopQuality? = null
+    /** Quality the host already accepted; avoids resending it on every session event. */
+    private var appliedQuality: RemoteDesktopQuality? = null
     private var grant: RemoteDesktopMediaGrant? = null
     private var stream: RemoteDesktopControlStream? = null
     private var heartbeatTimer: RemoteDesktopCancellable? = null
@@ -143,6 +149,8 @@ class RemoteDesktopSessionController(
     private var mediaConnected = false
     private var controlling = false
     private var inputPaused = false
+    /** A double tap on 「释放控制」 must not turn the second call into `not_controller`. */
+    private var releaseInFlight = false
 
     /** Current session snapshot, if the create call succeeded. */
     val session: RemoteDesktopSession?
@@ -175,6 +183,9 @@ class RemoteDesktopSessionController(
         if (isInFlight()) return
         requestedMode = mode
         requestedQuality = quality
+        // The create request already carries this quality; the host applies it on start.
+        appliedQuality = quality
+        _notice.value = null
         currentSession = null
         participantId = null
         grant = null
@@ -228,24 +239,54 @@ class RemoteDesktopSessionController(
 
     /** Drops control but keeps watching; the host releases every stuck key. */
     suspend fun releaseControl() {
+        if (releaseInFlight || !controlling) return
         val sessionId = currentSession?.id ?: return
-        val updated = try {
-            io { api.releaseControl(serverUrl, authorizationToken, sessionId) }
-        } catch (error: Exception) {
-            // RemoteDesktopException keeps its stable code; anything else becomes Unknown.
-            _state.value = error.toFailedState()
-            return
+        releaseInFlight = true
+        try {
+            // Release before the Server clears `canPublishData`: once the control grant is
+            // revoked the SFU drops this data packet, leaving a held mouse button down on
+            // the host (windows then ignore clicks until the button is released again).
+            releaseInput(RELEASE_REASON_MANUAL)
+            controlling = false
+            stopHeartbeat()
+            val updated = try {
+                io { api.releaseControl(serverUrl, authorizationToken, sessionId) }
+            } catch (error: Exception) {
+                // RemoteDesktopException keeps its stable code; anything else becomes Unknown.
+                _state.value = error.toFailedState()
+                return
+            }
+            applyServerSession(updated)
+        } finally {
+            releaseInFlight = false
         }
-        controlling = false
-        stopHeartbeat()
-        releaseInput(RELEASE_REASON_MANUAL)
-        applyServerSession(updated)
     }
 
-    /** Forwards new stream quality knobs on the control socket; no reply is expected. */
+    /**
+     * Forwards new stream quality knobs on the control socket; no reply is expected.
+     *
+     * A viewer that does not hold control is rejected by the Server, so the choice is
+     * remembered and sent once control arrives ([applyServerSession] / [takeControl])
+     * instead of failing the whole session.
+     */
     fun updateQuality(quality: RemoteDesktopQuality) {
         requestedQuality = quality
-        stream?.updateQuality(quality)
+        applyPendingQuality()
+    }
+
+    /** Sends the remembered quality when this client is allowed to change it. */
+    private fun applyPendingQuality() {
+        val quality = requestedQuality ?: return
+        if (!mediaConnected || !controlling) return
+        if (quality == appliedQuality) return
+        if (stream?.updateQuality(quality) == true) {
+            appliedQuality = quality
+        }
+    }
+
+    /** Dismisses the current transient message. */
+    fun clearNotice() {
+        _notice.value = null
     }
 
     /** Asks the host for a keyframe after a stall, a rotation or a foreground return. */
@@ -322,8 +363,10 @@ class RemoteDesktopSessionController(
         currentSession = null
         participantId = null
         grant = null
+        appliedQuality = null
         _trackSize.value = null
         _stats.value = null
+        _notice.value = null
         _state.value = RemoteDesktopSessionState.Idle
     }
 
@@ -394,6 +437,7 @@ class RemoteDesktopSessionController(
                     _state.value = RemoteDesktopSessionState.Live(updated, controlling)
                     syncHeartbeat()
                     watchForVideo()
+                    applyPendingQuality()
                 }
             }
 
@@ -443,6 +487,7 @@ class RemoteDesktopSessionController(
             _state.value = RemoteDesktopSessionState.Live(updated, controlling)
             syncHeartbeat()
             watchForVideo()
+            applyPendingQuality()
         } else {
             // Joined, but the host is not publishing yet: stay in ConnectingMedia until it is.
             _state.value = RemoteDesktopSessionState.ConnectingMedia(updated)
@@ -502,7 +547,10 @@ class RemoteDesktopSessionController(
         when (event) {
             is RemoteDesktopServerEvent.Subscribed -> Unit // the stream keeps the cursor
 
-            is RemoteDesktopServerEvent.SessionUpdated -> scope.launch { applyServerSession(event.session) }
+            is RemoteDesktopServerEvent.SessionUpdated -> {
+                // The Server publishes the session after a successful quality change.
+                scope.launch { applyServerSession(event.session) }
+            }
 
             is RemoteDesktopServerEvent.StatsUpdated -> _stats.value = event.stats
 
@@ -533,6 +581,15 @@ class RemoteDesktopSessionController(
     }
 
     private fun onServerError(event: RemoteDesktopServerEvent.Error) {
+        // The socket only carries best-effort controls after a session is live: a rejected
+        // quality change or keyframe request is a toast, not a reason to drop the picture.
+        // Terminal problems arrive as `remote_desktop.ended`.
+        if (_state.value is RemoteDesktopSessionState.Live ||
+            _state.value is RemoteDesktopSessionState.Reconnecting
+        ) {
+            _notice.value = event.message.ifBlank { "Remote desktop request failed." }
+            return
+        }
         stopTimers()
         if (!event.retryable && mediaConnected) {
             runCatching { media.disconnect() }

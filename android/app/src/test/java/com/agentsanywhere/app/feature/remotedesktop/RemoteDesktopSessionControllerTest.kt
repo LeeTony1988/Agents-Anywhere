@@ -179,6 +179,24 @@ class RemoteDesktopSessionControllerTest {
     }
 
     @Test
+    fun releaseControlReleasesInputEvenWhenTheServerCallFails() = runBlocking {
+        stub.createBody = createBody(state = "live", mediaIdentity = IDENTITY, controller = IDENTITY)
+        controller.start(connectorId = "conn_x", mode = RemoteDesktopMode.Control)
+        stub.releaseStatus = 500
+
+        controller.releaseControl()
+        // A second tap while the first release is settling must be a no-op.
+        controller.releaseControl()
+
+        // The host must never keep a held mouse button after control is released;
+        // sending release_all first also covers the SFU dropping it once the
+        // controller grant has been downgraded.
+        val releaseAll = media.inputs.map { JSONObject(it) }.single { it.getString("t") == "release_all" }
+        assertEquals("manual", releaseAll.getString("reason"))
+        assertEquals(1, stub.releaseCalls.get())
+    }
+
+    @Test
     fun controlRevokedDropsControlStopsHeartbeatAndReleasesInput() = runBlocking {
         stub.createBody = createBody(state = "live", mediaIdentity = IDENTITY, controller = IDENTITY)
         controller.start(connectorId = "conn_x", mode = RemoteDesktopMode.Control)
@@ -204,26 +222,23 @@ class RemoteDesktopSessionControllerTest {
     }
 
     @Test
-    fun serverErrorBecomesFailedAndKeepsTheCode() = runBlocking {
+    fun aLiveSessionShowsControlErrorsAsANoticeInsteadOfDroppingThePicture() = runBlocking {
         stub.createBody = createBody(state = "live", mediaIdentity = IDENTITY, controller = IDENTITY)
         controller.start(connectorId = "conn_x", mode = RemoteDesktopMode.Control)
 
         streams.single().emit(
             RemoteDesktopServerEvent.Error(
                 sessionId = SESSION_ID,
-                code = RemoteDesktopErrorCode.Unavailable,
-                rawCode = "remote_desktop_unavailable",
-                message = "Connector is offline",
-                retryable = false,
+                code = RemoteDesktopErrorCode.Unknown,
+                rawCode = "remote_desktop_update_failed",
+                message = "Quality update failed.",
+                retryable = true,
             ),
         )
 
-        val failed = controller.state.value as RemoteDesktopSessionState.Failed
-        assertEquals(RemoteDesktopErrorCode.Unavailable, failed.code)
-        assertEquals("remote_desktop_unavailable", failed.rawCode)
-        assertEquals("Connector is offline", failed.message)
-        assertFalse(failed.retryable)
-        assertEquals("A non-retryable error releases the room", 1, media.disconnects)
+        assertTrue("A live picture survives a control request failure", controller.state.value is RemoteDesktopSessionState.Live)
+        assertEquals("Quality update failed.", controller.notice.value)
+        assertEquals("The room stays connected", 0, media.disconnects)
     }
 
     @Test
@@ -487,9 +502,13 @@ private class RemoteDesktopServerStub(private val clock: FakeClock) : Dispatcher
     @Volatile
     var createBody: String = ""
 
+    @Volatile
+    var releaseStatus: Int = 200
+
     val tokenCalls = AtomicInteger()
     val heartbeatCalls = AtomicInteger()
     val endCalls = AtomicInteger()
+    val releaseCalls = AtomicInteger()
     val ticketCalls = AtomicInteger()
     val tokenRoles = java.util.concurrent.CopyOnWriteArrayList<RemoteDesktopTokenRole>()
 
@@ -514,6 +533,14 @@ private class RemoteDesktopServerStub(private val clock: FakeClock) : Dispatcher
                      "identity":"viewer:pt_9f2c1a7b3d4e5f60718293a4b5c6d7e8","token":"eyJyZW5ld2Vk",
                      "tokenExpiresAt":"${iso(clock.now + 600_000L)}","canPublishData":true}
                     """.trimIndent(),
+                )
+            }
+
+            path.endsWith("/release-control") -> {
+                releaseCalls.incrementAndGet()
+                jsonResponse(
+                    releaseStatus,
+                    sessionBody(state = "live", controller = null),
                 )
             }
 

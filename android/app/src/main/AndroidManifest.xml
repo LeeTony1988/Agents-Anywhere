@@ -51,10 +51,15 @@
         <service
             android:name="io.livekit.android.room.track.screencapture.ScreenCaptureService"
             tools:node="remove" />
+        <!-- Rotation/fullscreen must not recreate the Activity: the remote desktop viewer
+             owns a LiveKit room and a Server-side participant, and a recreation would join
+             the same session as a second participant until the device hits its viewer
+             limit. Compose receives the new configuration through onConfigurationChanged. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

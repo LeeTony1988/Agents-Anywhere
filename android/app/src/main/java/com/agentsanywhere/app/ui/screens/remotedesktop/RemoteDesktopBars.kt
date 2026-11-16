@@ -1,16 +1,18 @@
 package com.agentsanywhere.app.ui.screens.remotedesktop
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -19,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,14 +29,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -43,11 +50,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.agentsanywhere.app.R
+import com.agentsanywhere.app.api.RemoteDesktopStats
 import com.agentsanywhere.app.feature.remotedesktop.RemoteDesktopQualityPreset
 import com.agentsanywhere.app.feature.remotedesktop.input.RemoteModifierKey
 import com.agentsanywhere.app.feature.remotedesktop.input.RemoteOneShotKey
+import com.agentsanywhere.app.feature.remotedesktop.input.RemotePointerMode
 import com.agentsanywhere.app.ui.designsystem.AADropdownMenu
 import com.agentsanywhere.app.ui.designsystem.AADropdownMenuItem
+import com.agentsanywhere.app.ui.designsystem.AADropdownMenuLabel
 import com.agentsanywhere.app.ui.designsystem.LocalAAColors
 import com.agentsanywhere.app.ui.designsystem.noRippleClickable
 import com.composables.icons.lucide.Camera
@@ -56,7 +66,20 @@ import com.composables.icons.lucide.ChevronLeft
 import com.composables.icons.lucide.Keyboard
 import com.composables.icons.lucide.Maximize
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.SlidersHorizontal
 import com.composables.icons.lucide.X
+import java.util.Locale
+import kotlinx.coroutines.delay
+
+/**
+ * Fixed chrome colours for the controls handle. It floats over the remote picture, where
+ * theme colours fail: in the light theme `primaryAction` is near-black, so the old icon
+ * button disappeared into a dark desktop. A translucent dark scrim with a white glyph and
+ * ring stays readable on both dark and light desktops without covering much of the screen.
+ */
+private val ControlsHandleSurface = Color(0x99000000)
+private val ControlsHandleInk = Color(0xF2FFFFFF)
+private val ControlsHandleBorder = Color(0x4DFFFFFF)
 
 /** Connection state as the badge shows it; derived from the controller state by the screen. */
 internal enum class RemoteDesktopConnectionStatus(val labelRes: Int) {
@@ -73,6 +96,7 @@ internal fun RemoteDesktopTopBar(
     deviceName: String,
     status: RemoteDesktopConnectionStatus,
     quality: RemoteDesktopQualityPreset,
+    stats: RemoteDesktopStats? = null,
     onBack: () -> Unit,
     onQualityChange: (RemoteDesktopQualityPreset) -> Unit,
     onEnd: () -> Unit,
@@ -144,6 +168,17 @@ internal fun RemoteDesktopTopBar(
                 expanded = qualityMenuOpen,
                 onDismissRequest = { qualityMenuOpen = false },
             ) {
+                AADropdownMenuLabel(
+                    text = stats?.let { sample ->
+                        stringResource(
+                            R.string.remote_desktop_quality_current,
+                            sample.width,
+                            sample.height,
+                            String.format(Locale.US, "%.1f", sample.bitrateKbps / 1000.0),
+                            String.format(Locale.US, "%.0f", sample.fps),
+                        )
+                    } ?: stringResource(R.string.remote_desktop_quality_measuring),
+                )
                 RemoteDesktopQualityPreset.entries.forEach { preset ->
                     AADropdownMenuItem(
                         text = qualityLabel(preset),
@@ -224,35 +259,90 @@ internal fun RemoteDesktopModifierBar(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAAColors.current
-    Row(
+    Column(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
             .background(colors.raisedSurface.copy(alpha = 0.94f))
             .border(1.dp, colors.border, RoundedCornerShape(16.dp))
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        RemoteModifierKey.entries.forEach { key ->
-            RemoteDesktopKeyChip(
-                label = key.label,
-                active = key in armed,
-                onClick = { onModifier(key) },
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            RemoteModifierKey.entries.forEach { key ->
+                RemoteDesktopKeyChip(
+                    label = key.label,
+                    active = key in armed,
+                    onClick = { onModifier(key) },
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            RemoteOneShotKey.entries.forEach { key ->
+                RemoteDesktopKeyChip(
+                    label = key.label,
+                    active = false,
+                    onClick = { onOneShot(key) },
+                )
+            }
+            RemoteDesktopRoundButton(
+                icon = Lucide.Keyboard,
+                description = stringResource(R.string.remote_desktop_keyboard),
+                onClick = onKeyboard,
             )
         }
-        RemoteOneShotKey.entries.forEach { key ->
-            RemoteDesktopKeyChip(
-                label = key.label,
-                active = false,
-                onClick = { onOneShot(key) },
-            )
-        }
-        RemoteDesktopRoundButton(
-            icon = Lucide.Keyboard,
-            description = stringResource(R.string.remote_desktop_keyboard),
-            onClick = onKeyboard,
+    }
+}
+
+@Composable
+private fun RemoteDesktopPointerModeToggle(
+    pointerMode: RemotePointerMode,
+    onPointerModeChange: (RemotePointerMode) -> Unit,
+) {
+    val colors = LocalAAColors.current
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(colors.subtle),
+    ) {
+        PointerModeSegment(
+            label = stringResource(R.string.remote_desktop_pointer_direct),
+            selected = pointerMode == RemotePointerMode.Direct,
+            onClick = { onPointerModeChange(RemotePointerMode.Direct) },
+        )
+        PointerModeSegment(
+            label = stringResource(R.string.remote_desktop_pointer_mouse),
+            selected = pointerMode == RemotePointerMode.Mouse,
+            onClick = { onPointerModeChange(RemotePointerMode.Mouse) },
         )
     }
+}
+
+@Composable
+private fun PointerModeSegment(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = LocalAAColors.current
+    Text(
+        text = label,
+        color = if (selected) colors.onPrimaryAction else colors.inkSoft,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) colors.primaryAction else Color.Transparent)
+            .noRippleClickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+    )
 }
 
 @Composable
@@ -280,6 +370,8 @@ private fun RemoteDesktopKeyChip(
 internal fun RemoteDesktopControlBar(
     controlling: Boolean,
     leaseSeconds: Int?,
+    pointerMode: RemotePointerMode,
+    onPointerModeChange: (RemotePointerMode) -> Unit,
     onTakeControl: () -> Unit,
     onReleaseControl: () -> Unit,
     onScreenshot: () -> Unit,
@@ -287,15 +379,31 @@ internal fun RemoteDesktopControlBar(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAAColors.current
-    Row(
+    Column(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
             .background(colors.raisedSurface.copy(alpha = 0.94f))
             .border(1.dp, colors.border, RoundedCornerShape(16.dp))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            // Two-segment switch: direct touch is the touchscreen metaphor; mouse is the
+            // laptop-trackpad metaphor that makes small targets and text selection usable.
+            RemoteDesktopPointerModeToggle(
+                pointerMode = pointerMode,
+                onPointerModeChange = onPointerModeChange,
+            )
+            RemoteDesktopRoundButton(
+                icon = Lucide.Camera,
+                description = stringResource(R.string.remote_desktop_screenshot),
+                onClick = { if (!screenshotBusy) onScreenshot() },
+            )
+        }
         Text(
             text = if (controlling) {
                 stringResource(R.string.remote_desktop_controlling)
@@ -305,7 +413,6 @@ internal fun RemoteDesktopControlBar(
             color = colors.inkSoft,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.widthIn(max = 160.dp),
             maxLines = 2,
         )
         if (controlling && leaseSeconds != null) {
@@ -316,7 +423,6 @@ internal fun RemoteDesktopControlBar(
                 fontWeight = FontWeight.Medium,
             )
         }
-        Spacer(Modifier.size(2.dp))
         Text(
             text = stringResource(
                 if (controlling) R.string.remote_desktop_release_control else R.string.remote_desktop_take_control,
@@ -325,15 +431,11 @@ internal fun RemoteDesktopControlBar(
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier
+                .fillMaxWidth()
                 .clip(RoundedCornerShape(10.dp))
                 .background(if (controlling) colors.subtle else colors.primaryAction)
                 .noRippleClickable(onClick = if (controlling) onReleaseControl else onTakeControl)
                 .padding(horizontal = 12.dp, vertical = 7.dp),
-        )
-        RemoteDesktopRoundButton(
-            icon = Lucide.Camera,
-            description = stringResource(R.string.remote_desktop_screenshot),
-            onClick = { if (!screenshotBusy) onScreenshot() },
         )
     }
 }
@@ -343,23 +445,87 @@ internal fun RemoteDesktopRoundButton(
     icon: ImageVector,
     description: String,
     onClick: () -> Unit,
-    highlighted: Boolean = false,
 ) {
     val colors = LocalAAColors.current
     Box(
         modifier = Modifier
             .size(34.dp)
             .clip(CircleShape)
-            .background(if (highlighted) colors.primaryAction else Color.Transparent)
             .noRippleClickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = description,
-            tint = if (highlighted) colors.onPrimaryAction else colors.ink,
+            tint = colors.ink,
             modifier = Modifier.size(19.dp),
         )
+    }
+}
+
+/**
+ * The closed state of the controls drawer: a compact, translucent icon button.
+ *
+ * The old entry was 34 dp and painted with theme colours, so in the light theme it was a
+ * near-black dot on a dark desktop and easy to miss. This one keeps the small footprint
+ * (a 36 dp circle inside a 48 dp touch target, covering very little of the picture) but
+ * uses fixed chrome that reads on any desktop: a 60% black scrim with a white border and
+ * a white glyph, the same visual language as the mouse trackpad. It pulses three times the
+ * first time a live session shows it, so the eye catches it.
+ */
+@Composable
+internal fun RemoteDesktopControlsHandle(
+    onClick: () -> Unit,
+    hint: Boolean = false,
+    onHintFinished: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    val description = stringResource(R.string.remote_desktop_controls_show)
+    val pulse = remember { Animatable(1f) }
+    LaunchedEffect(hint) {
+        if (!hint) {
+            // A click during the pulse flips `hint` to false and cancels the effect below;
+            // snapping back here keeps the circle at its normal size instead of freezing it
+            // part-way through the scale-up.
+            pulse.snapTo(1f)
+            return@LaunchedEffect
+        }
+        repeat(3) {
+            pulse.animateTo(1.08f, tween(durationMillis = 380, easing = FastOutSlowInEasing))
+            pulse.animateTo(1f, tween(durationMillis = 380, easing = FastOutSlowInEasing))
+            delay(180)
+        }
+        onHintFinished()
+    }
+    // 48 dp touch target around a 36 dp visible circle: thumb-friendly without covering
+    // more of the picture than the old icon did.
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .noRippleClickable(onClick = onClick)
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .graphicsLayer {
+                    scaleX = pulse.value
+                    scaleY = pulse.value
+                }
+                .shadow(elevation = 6.dp, shape = CircleShape)
+                .clip(CircleShape)
+                .background(ControlsHandleSurface)
+                .border(1.dp, ControlsHandleBorder, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Lucide.SlidersHorizontal,
+                contentDescription = null,
+                tint = ControlsHandleInk,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }
 

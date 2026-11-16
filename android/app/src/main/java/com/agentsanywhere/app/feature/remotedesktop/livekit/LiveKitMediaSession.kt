@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -90,6 +91,7 @@ class LiveKitMediaSession(
     private var trackEventsJob: Job? = null
     private var videoTrack: VideoTrack? = null
     private var sinkFrames = 0L
+    private val publishFailures = java.util.concurrent.atomic.AtomicLong(0L)
     private val compatFrames = MutableStateFlow<Bitmap?>(null)
     private var lastCompatAt = 0L
     @Volatile private var glFirstFrame = false
@@ -99,11 +101,31 @@ class LiveKitMediaSession(
     private var eglBase: EglBase? = null
     private var joinedIdentity: String? = null
 
+    /**
+     * Pointer frames are conflated before publishing. Launching one coroutine per frame
+     * let a busy data channel queue old positions; the newest sample is the only one that
+     * matters, and a single sender keeps frames ordered and removes that backlog.
+     */
+    private val pointerFrameChannel = Channel<ByteArray>(capacity = Channel.CONFLATED)
+    private val pointerSenderJob = scope.launch {
+        for (frame in pointerFrameChannel) {
+            publishPointerFrameNow(frame)
+        }
+    }
+
     /** LiveKit identity this client joined the room with; null when not joined. */
     val identity: String?
         get() = joinedIdentity
 
     override suspend fun connect(grant: RemoteDesktopMediaGrant) {
+        // The grant's role decides whether the SFU will carry `aa.input` at all
+        // (`canPublishData` is enforced server-side, not by this client), so it is the
+        // first thing to check when the picture works but taps do nothing.
+        android.util.Log.i(
+            "RDMedia",
+            "connect identity=${grant.identity} room=${grant.room} " +
+                "canPublishData=${grant.canPublishData} url=${grant.url}",
+        )
         try {
             val existing = room
             if (existing != null && existing.state == Room.State.CONNECTED && joinedIdentity == grant.identity) {
@@ -142,6 +164,8 @@ class LiveKitMediaSession(
     /** Full teardown, including the WebRTC room and the EGL context. Call when leaving the screen. */
     fun release() {
         disconnect()
+        pointerSenderJob.cancel()
+        pointerFrameChannel.close()
         roomEventsJob?.cancel()
         roomEventsJob = null
         room?.let { current -> runCatching { current.release() } }
@@ -159,11 +183,7 @@ class LiveKitMediaSession(
     }
 
     override fun sendPointerFrame(bytes: ByteArray) {
-        publishData(
-            payload = bytes,
-            reliability = DataPublishReliability.LOSSY,
-            topic = REMOTE_DESKTOP_POINTER_TOPIC,
-        )
+        pointerFrameChannel.trySend(bytes)
     }
 
     override fun initRenderer(renderer: TextureViewRenderer) {
@@ -269,9 +289,13 @@ class LiveKitMediaSession(
                 // Compatibility path: turn decoded frames into bitmaps so the viewer can draw
                 // them without the WebRTC GL sink (which paints nothing on this emulator).
                 val now = android.os.SystemClock.elapsedRealtime()
-                if (compatEnabled.get() && now - lastCompatAt >= 250L) {
+                // Full resolution: the fallback exists because a GL sink may paint nothing,
+                // not because the phone should get a blurred half-size picture. 10 fps is
+                // enough to stay usable and keeps the I420->ARGB conversion off the main
+                // thread's critical path.
+                if (compatEnabled.get() && now - lastCompatAt >= 100L) {
                     lastCompatAt = now
-                    runCatching { frame.toBitmap(step = 2) }.getOrNull()?.let { bitmap ->
+                    runCatching { frame.toBitmap(step = 1) }.getOrNull()?.let { bitmap ->
                         compatFrames.value = bitmap
                     }
                 }
@@ -412,16 +436,47 @@ class LiveKitMediaSession(
     }
 
     private fun publishData(payload: ByteArray, reliability: DataPublishReliability, topic: String) {
-        val participant = room?.localParticipant ?: return
+        val participant = room?.localParticipant
+        if (participant == null) {
+            logPublishFailure(topic, "not joined")
+            return
+        }
         scope.launch {
             try {
-                participant.publishData(payload, reliability, topic)
+                participant.publishData(payload, reliability, topic).onFailure { error ->
+                    logPublishFailure(topic, error.message ?: error.javaClass.simpleName)
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
                 // A refused data packet is not a connection failure: the next pointer frame
-                // carries the newest position, so the stream self-heals.
+                // carries the newest position, so the stream self-heals. It is still the
+                // only visible symptom of a missing `canPublishData`, so it is logged.
+                logPublishFailure(topic, error.message ?: error.javaClass.simpleName)
             }
+        }
+    }
+
+    /** Single-consumer publisher for the conflated pointer channel. */
+    private suspend fun publishPointerFrameNow(bytes: ByteArray) {
+        val participant = room?.localParticipant ?: return
+        try {
+            participant.publishData(bytes, DataPublishReliability.LOSSY, REMOTE_DESKTOP_POINTER_TOPIC)
+                .onFailure { error ->
+                    logPublishFailure(REMOTE_DESKTOP_POINTER_TOPIC, error.message ?: error.javaClass.simpleName)
+                }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            logPublishFailure(REMOTE_DESKTOP_POINTER_TOPIC, error.message ?: error.javaClass.simpleName)
+        }
+    }
+
+    /** Logs the first few publishing failures, then every hundredth, with their topic. */
+    private fun logPublishFailure(topic: String, reason: String) {
+        val failures = publishFailures.incrementAndGet()
+        if (failures <= 3 || failures % 100L == 0L) {
+            android.util.Log.w("RDMedia", "publishData($topic) failed #$failures: $reason")
         }
     }
 

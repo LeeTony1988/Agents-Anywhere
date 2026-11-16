@@ -799,6 +799,15 @@
     <string name="remote_desktop_quality_smooth">Smooth</string>
     <string name="remote_desktop_quality_clear">Clear</string>
     <string name="remote_desktop_quality_auto">Auto</string>
+    <string name="remote_desktop_pointer_direct">Touch</string>
+    <string name="remote_desktop_pointer_mouse">Mouse</string>
+    <string name="remote_desktop_trackpad_hint">Swipe · tap\nHold to drag</string>
+    <string name="remote_desktop_trackpad_locked">Locked</string>
+    <string name="remote_desktop_controls_show">Show controls</string>
+    <string name="remote_desktop_controls_hide">Hide controls</string>
+    <string name="remote_desktop_controls_title">Controls</string>
+    <string name="remote_desktop_quality_current">Current: %1$d×%2$d · %3$s Mbps · %4$s fps</string>
+    <string name="remote_desktop_quality_measuring">Current: waiting for the first sample</string>
     <string name="remote_desktop_connecting">Connecting the picture…</string>
     <string name="remote_desktop_connecting_body">Joining the media room and waiting for the first frame.</string>
     <string name="remote_desktop_waiting_frame">Waiting for the screen…</string>
@@ -832,7 +841,7 @@
     <string name="remote_desktop_unavailable_title">Remote desktop is unavailable</string>
     <string name="remote_desktop_reason_connector_offline">The device is offline.</string>
     <string name="remote_desktop_reason_host_not_running">The screen host is not running on the device.</string>
-    <string name="remote_desktop_reason_host_not_installed">The device has no screen host installed.</string>
+    <string name="remote_desktop_reason_host_not_installed">The screen host on the device is unavailable (not installed, missing permissions, or restricted by the system).</string>
     <string name="remote_desktop_reason_connector_outdated">The Connector on the device needs an update.</string>
     <string name="remote_desktop_reason_unsupported">This device does not support remote desktop.</string>
     <string name="remote_desktop_reason_screen_permission">The device has not granted screen recording.</string>

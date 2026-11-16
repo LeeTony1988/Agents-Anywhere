@@ -797,6 +797,15 @@
     <string name="remote_desktop_quality_smooth">流畅</string>
     <string name="remote_desktop_quality_clear">清晰</string>
     <string name="remote_desktop_quality_auto">自动</string>
+    <string name="remote_desktop_pointer_direct">触控</string>
+    <string name="remote_desktop_pointer_mouse">鼠标</string>
+    <string name="remote_desktop_trackpad_hint">滑动移动 · 轻点\n按住圆圈拖拽</string>
+    <string name="remote_desktop_trackpad_locked">锁定</string>
+    <string name="remote_desktop_controls_show">显示控制面板</string>
+    <string name="remote_desktop_controls_hide">隐藏控制面板</string>
+    <string name="remote_desktop_controls_title">控制面板</string>
+    <string name="remote_desktop_quality_current">当前：%1$d×%2$d · %3$s Mbps · %4$s fps</string>
+    <string name="remote_desktop_quality_measuring">当前：等待画面数据</string>
     <string name="remote_desktop_connecting">正在连接画面…</string>
     <string name="remote_desktop_connecting_body">正在加入媒体房间，等待第一帧。</string>
     <string name="remote_desktop_waiting_frame">正在等待画面…</string>
@@ -830,7 +839,7 @@
     <string name="remote_desktop_unavailable_title">这台设备暂不支持远程桌面</string>
     <string name="remote_desktop_reason_connector_offline">设备离线。</string>
     <string name="remote_desktop_reason_host_not_running">设备上的屏幕共享服务未运行。</string>
-    <string name="remote_desktop_reason_host_not_installed">设备还没有安装屏幕共享组件。</string>
+    <string name="remote_desktop_reason_host_not_installed">设备上的屏幕共享组件不可用（未安装、权限不足或被系统限制）。</string>
     <string name="remote_desktop_reason_connector_outdated">设备上的 Connector 需要更新。</string>
     <string name="remote_desktop_reason_unsupported">这台设备不支持远程桌面。</string>
     <string name="remote_desktop_reason_screen_permission">设备没有授予屏幕录制权限。</string>
